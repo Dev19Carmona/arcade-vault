@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "@/components/session-provider";
 import { GAMES, seededScores } from "@/lib/games";
 import type { ScoreRow } from "@/lib/games";
+import { ROUTES } from "@/lib/routes";
 
 const fmt = (n: number) => n.toLocaleString("es-ES");
 
@@ -114,7 +115,7 @@ export function HallOfFame() {
       </div>
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
-        <Link href="/" className="btn lg">
+        <Link href={ROUTES.library} className="btn lg">
           VOLVER A LA BIBLIOTECA
         </Link>
       </div>

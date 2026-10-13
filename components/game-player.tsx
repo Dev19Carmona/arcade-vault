@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "@/components/session-provider";
+import { ROUTES } from "@/lib/routes";
 
 const LIVES = 3;
 const POINTS_PER_LEVEL = 2500;
@@ -131,7 +132,7 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
               <button type="button" className="btn" onClick={restart}>
                 JUGAR DE NUEVO
               </button>
-              <Link href="/" className="btn magenta">
+              <Link href={ROUTES.library} className="btn magenta">
                 VOLVER AL VAULT
               </Link>
             </div>

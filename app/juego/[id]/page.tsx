@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GAMES, seededScores } from "@/lib/games";
+import { ROUTES } from "@/lib/routes";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ id: g.id }));
@@ -57,7 +58,7 @@ export default async function GameDetailPage({ params }: PageProps<"/juego/[id]"
             <Link href={`/juego/${game.id}/jugar`} className="btn xl pulse">
               ▶&nbsp; JUGAR AHORA
             </Link>
-            <Link href="/" className="btn ghost lg">
+            <Link href={ROUTES.library} className="btn ghost lg">
               VOLVER AL VAULT
             </Link>
           </div>
