@@ -35,3 +35,7 @@ Prototipo de diseño de referencia (HTML + JSX con React por CDN y Babel, no es 
 - Persistencia simulada en `localStorage` (`av_user` para sesión, `av_scores` para puntuaciones).
 
 Al portarlo, se traduce a rutas del App Router en lugar del router por hash.
+
+
+## Skills
+Usa siempre /frontend-design para diseñar la interfaz de usuario.
