@@ -1,15 +1,7 @@
-import { LibraryView } from "@/components/library-view";
+import { redirect } from "next/navigation";
 
+// Temporal (SPEC 02, paso 1): la Biblioteca vive en /games.
+// El paso 10 reemplaza este redirect por el homepage.
 export default function Home() {
-  return (
-    <div className="fade-in">
-      <section className="av-hero">
-        <h1 className="flicker">ARCADE VAULT</h1>
-        <div className="sub">
-          INSERTA UNA MONEDA PARA JUGAR <span className="blink">_</span>
-        </div>
-      </section>
-      <LibraryView />
-    </div>
-  );
+  redirect("/games");
 }
