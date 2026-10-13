@@ -1,6 +1,6 @@
 # SPEC 01 — MVP visual de Arcade Vault (5 pantallas)
 
-> **Estado:** Aprovado
+> **Estado:** Implementado
 > **Depende de:** ninguna
 > **Fecha:** 2026-10-13
 > **Objetivo:** Portar las cinco pantallas del prototipo `references/templates/` (biblioteca, detalle, reproductor, acceso y salón de la fama) a rutas del App Router de Next.js, solo en su parte visual y con datos simulados.
@@ -107,26 +107,26 @@ Antes de escribir código, leer la guía relevante de `node_modules/next/dist/do
 
 ## Criterios de aceptación
 
-- [ ] `npm run lint` y `npm run build` terminan sin errores.
-- [ ] `/` muestra las 8 tarjetas de juego y el título "ARCADE VAULT".
-- [ ] Escribir "caida" en el buscador deja solo la tarjeta CAÍDA; la búsqueda no distingue mayúsculas.
-- [ ] El chip "SHOOTER" muestra exactamente INVASORES y ROCAS.
-- [ ] Una búsqueda sin coincidencias muestra "NO HAY RESULTADOS".
-- [ ] Hacer clic en una tarjeta o en su botón JUGAR navega a `/juego/[id]` del juego correcto.
-- [ ] `/juego/[id]` muestra 10 filas de puntuaciones y el botón "JUGAR AHORA" lleva a `/juego/[id]/jugar`.
-- [ ] `/juego/inexistente` devuelve la página 404.
-- [ ] En `/juego/[id]/jugar` la puntuación aumenta sola; PAUSA la detiene y REANUDAR la retoma.
-- [ ] Pulsar FIN abre el modal con la puntuación final; "GUARDAR PUNTUACIÓN" escribe un registro en `localStorage["av_scores"]` y muestra "PUNTUACIÓN GUARDADA".
-- [ ] "JUGAR DE NUEVO" reinicia puntaje, vidas y nivel a 0 / 3 / 1; "VOLVER AL VAULT" navega a `/`.
-- [ ] En `/acceso`, la pestaña "CREAR CUENTA" muestra el campo de correo y "INICIAR SESIÓN" lo oculta.
-- [ ] Enviar el formulario con usuario "px_kai" guarda `av_user` con nombre `PX_KAI` y redirige a `/`.
-- [ ] "JUGAR COMO INVITADO" redirige a `/` sin sesión.
-- [ ] Con sesión iniciada, la barra muestra el nombre y al pulsarlo se cierra la sesión y se borra `av_user`.
-- [ ] Recargar la página con sesión iniciada mantiene al usuario y no produce warnings de hidratación en la consola.
-- [ ] `/salon` muestra podio con 3 posiciones y 12 filas; cambiar de pestaña cambia los datos.
-- [ ] En `/salon` la fila "TU MEJOR MARCA" aparece solo con sesión iniciada.
-- [ ] A 375 px de ancho no hay scroll horizontal y el botón ≡ abre el panel móvil con los enlaces.
-- [ ] El enlace "Biblioteca" aparece activo en `/`, `/juego/[id]` y `/juego/[id]/jugar`; "Salón de la Fama" lo está en `/salon`.
+- [x] `npm run lint` y `npm run build` terminan sin errores.
+- [x] `/` muestra las 8 tarjetas de juego y el título "ARCADE VAULT".
+- [x] Escribir "caida" en el buscador deja solo la tarjeta CAÍDA; la búsqueda no distingue mayúsculas.
+- [x] El chip "SHOOTER" muestra exactamente INVASORES y ROCAS.
+- [x] Una búsqueda sin coincidencias muestra "NO HAY RESULTADOS".
+- [x] Hacer clic en una tarjeta o en su botón JUGAR navega a `/juego/[id]` del juego correcto.
+- [x] `/juego/[id]` muestra 10 filas de puntuaciones y el botón "JUGAR AHORA" lleva a `/juego/[id]/jugar`.
+- [x] `/juego/inexistente` devuelve la página 404.
+- [x] En `/juego/[id]/jugar` la puntuación aumenta sola; PAUSA la detiene y REANUDAR la retoma.
+- [x] Pulsar FIN abre el modal con la puntuación final; "GUARDAR PUNTUACIÓN" escribe un registro en `localStorage["av_scores"]` y muestra "PUNTUACIÓN GUARDADA".
+- [x] "JUGAR DE NUEVO" reinicia puntaje, vidas y nivel a 0 / 3 / 1; "VOLVER AL VAULT" navega a `/`.
+- [x] En `/acceso`, la pestaña "CREAR CUENTA" muestra el campo de correo y "INICIAR SESIÓN" lo oculta.
+- [x] Enviar el formulario con usuario "px_kai" guarda `av_user` con nombre `PX_KAI` y redirige a `/`.
+- [x] "JUGAR COMO INVITADO" redirige a `/` sin sesión.
+- [x] Con sesión iniciada, la barra muestra el nombre y al pulsarlo se cierra la sesión y se borra `av_user`.
+- [x] Recargar la página con sesión iniciada mantiene al usuario y no produce warnings de hidratación en la consola.
+- [x] `/salon` muestra podio con 3 posiciones y 12 filas; cambiar de pestaña cambia los datos.
+- [x] En `/salon` la fila "TU MEJOR MARCA" aparece solo con sesión iniciada.
+- [x] A 375 px de ancho no hay scroll horizontal y el botón ≡ abre el panel móvil con los enlaces.
+- [x] El enlace "Biblioteca" aparece activo en `/`, `/juego/[id]` y `/juego/[id]/jugar`; "Salón de la Fama" lo está en `/salon`.
 
 ---
 
