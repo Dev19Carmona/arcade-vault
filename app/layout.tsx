@@ -29,6 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
+      suppressHydrationWarning
       className={`${pressStart.variable} ${jetbrainsMono.variable} ${courierPrime.variable}`}
     >
       <body>
