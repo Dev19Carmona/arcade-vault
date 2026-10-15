@@ -25,6 +25,19 @@ El código actual en `app/` es todavía el scaffold de Create Next App (`app/pag
 
 Next.js 16 (App Router) + React 19 + TypeScript estricto + Tailwind CSS v4 (`@import "tailwindcss"` y `@theme inline` en `app/globals.css`, sin `tailwind.config`). Alias de imports: `@/*` → raíz del repo. Los tipos globales como `LayoutProps<"/">` vienen de Next (ver `app/layout.tsx`).
 
+Backend: Supabase (`@supabase/supabase-js` + `@supabase/ssr`) contra el proyecto remoto `mendwbsdxpwrrrqlsmxe`, también accesible por MCP (`.mcp.json`). La sesión y las puntuaciones de la app siguen siendo simuladas en `localStorage` hasta las specs de auth y puntuaciones.
+
+## Supabase
+
+- **Variables de entorno** (en `.env.local`, ignorado por git; plantilla en `.env.example`): `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_…`). El `.env` existente solo guarda `SUPABASE_DB_PASSWORD`. No se usa secret/service role key.
+- **Clientes** en `lib/supabase/`, tipados con `Database`:
+  - `client.ts`: `createClient()` para client components.
+  - `server.ts`: `createClient()` asíncrono para Server Components, Server Functions y Route Handlers.
+  - `proxy.ts`: `updateSession()`, invocado desde `proxy.ts` (raíz) para refrescar la sesión en cada petición. Next 16 usa `proxy.ts`, no `middleware.ts`.
+- **Tipos**: `lib/supabase/database.types.ts` es generado (MCP `generate_typescript_types`); no se edita a mano y se regenera tras cada migración.
+- **Migraciones**: archivos `supabase/migrations/<YYYYMMDDHHMMSS>_<nombre>.sql` versionados en git, aplicados al remoto con `apply_migration` del MCP usando el mismo nombre.
+- **Health check**: `GET /api/health` responde `200 { ok: true }` o `503 { ok: false, error }`.
+
 ## `references/templates/`
 
 Prototipo de diseño de referencia (HTML + JSX con React por CDN y Babel, no es código de la app). Es la fuente de verdad del diseño/UX a portar a `app/`:
@@ -36,6 +49,6 @@ Prototipo de diseño de referencia (HTML + JSX con React por CDN y Babel, no es 
 
 Al portarlo, se traduce a rutas del App Router en lugar del router por hash.
 
-
 ## Skills
+
 Usa siempre /frontend-design para diseñar la interfaz de usuario.
