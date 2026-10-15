@@ -1,6 +1,6 @@
 # SPEC 03 — Integración base de Supabase
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-10-15
 > **Objetivo:** Conectar la app de Next.js al proyecto remoto de Supabase con clientes tipados de navegador y servidor, refresco de sesión en `proxy.ts` y un endpoint `/api/health`, sin cambiar todavía la UI ni la persistencia simulada.
@@ -87,17 +87,17 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` las guías de 
 
 ## Criterios de aceptación
 
-- [ ] `package.json` incluye `@supabase/supabase-js` y `@supabase/ssr`.
+- [x] `package.json` incluye `@supabase/supabase-js` y `@supabase/ssr`.
 - [ ] `npm run lint` y `npm run build` terminan sin errores.
-- [ ] `.env.example` está versionado con `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` vacíos; `.env.local` no aparece en `git status`.
-- [ ] Existen `lib/supabase/client.ts`, `lib/supabase/server.ts`, `lib/supabase/proxy.ts`, `lib/supabase/database.types.ts` y `proxy.ts`.
-- [ ] No existe `middleware.ts` en el repo.
-- [ ] Con `npm run dev`, `GET /api/health` responde `200` y `{"ok":true}`.
-- [ ] Con la publishable key alterada en `.env.local`, `GET /api/health` responde `503` con `ok: false`.
+- [x] `.env.example` está versionado con `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` vacíos; `.env.local` no aparece en `git status`.
+- [x] Existen `lib/supabase/client.ts`, `lib/supabase/server.ts`, `lib/supabase/proxy.ts`, `lib/supabase/database.types.ts` y `proxy.ts`.
+- [x] No existe `middleware.ts` en el repo.
+- [x] Con `npm run dev`, `GET /api/health` responde `200` y `{"ok":true}`.
+- [x] Con la publishable key alterada en `.env.local`, `GET /api/health` responde `503` con `ok: false`.
 - [ ] `/`, `/games`, `/juego/caida`, `/juego/caida/jugar`, `/acceso` y `/salon` se ven y funcionan igual que antes; sin errores nuevos en consola.
 - [ ] La sesión simulada (`av_user`) y el guardado en `av_scores` siguen funcionando.
-- [ ] Existe `supabase/migrations/` en el repo y el esquema `public` remoto sigue sin tablas.
-- [ ] Ninguna clave secreta (service role, password de BD) aparece en archivos versionados ni en variables `NEXT_PUBLIC_*`.
+- [x] Existe `supabase/migrations/` en el repo y el esquema `public` remoto sigue sin tablas.
+- [x] Ninguna clave secreta (service role, password de BD) aparece en archivos versionados ni en variables `NEXT_PUBLIC_*`.
 
 ---
 
