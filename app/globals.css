@@ -733,6 +733,15 @@ a { color: inherit; text-decoration: none; }
   50% { transform: translate(20px, 10px); }
 }
 
+/* canvas de un juego real: resolución lógica fija, escalado por CSS dentro del 4:3 */
+.game-canvas {
+  position: absolute; inset: 0;
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
 /* game over modal */
 .modal-bd {
   position: fixed; inset: 0; z-index: 80;
