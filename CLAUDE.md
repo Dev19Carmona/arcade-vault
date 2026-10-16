@@ -38,6 +38,15 @@ Backend: Supabase (`@supabase/supabase-js` + `@supabase/ssr`) contra el proyecto
 - **Migraciones**: archivos `supabase/migrations/<YYYYMMDDHHMMSS>_<nombre>.sql` versionados en git, aplicados al remoto con `apply_migration` del MCP usando el mismo nombre.
 - **Health check**: `GET /api/health` responde `200 { ok: true }` o `503 { ok: false, error }`.
 
+## Juegos
+
+Convención para portar un juego real (el resto del catálogo en `lib/games.ts` sigue simulado en `components/game-player.tsx`):
+
+- **Motor** en `lib/games/<juego>/`: TypeScript sin `window`/`document`; expone `createXEngine({ onChange, onGameOver })` con `update(dt)`, `draw(ctx)`, `setKeys`, `reset` y `getSnapshot`. Las entidades reciben el `ctx` por parámetro.
+- **Componente** en `components/games/<juego>-canvas.tsx` (client): monta el `<canvas>`, registra teclado y `requestAnimationFrame`, y los limpia al desmontar. Props: `paused`, `runId` (cambiarlo reinicia), `onChange`, `onGameOver`. Escalado con `.game-canvas` en `app/globals.css`.
+- **Integración**: `GamePlayer` elige el canvas real según `gameId`; el HUD, la pausa y el modal de fin son de la plataforma y el puntaje se guarda con `saveScore` (`av_scores`).
+- **Juegos reales**: `rocas` (Asteroids, `lib/games/asteroids/`; solo teclado: `←` `→` `↑` `Espacio`). Fuente original en `references/started-games/02-asteroids/`.
+
 ## `references/templates/`
 
 Prototipo de diseño de referencia (HTML + JSX con React por CDN y Babel, no es código de la app). Es la fuente de verdad del diseño/UX a portar a `app/`:

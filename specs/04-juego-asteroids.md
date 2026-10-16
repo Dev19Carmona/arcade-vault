@@ -1,6 +1,6 @@
 # SPEC 04 — Primer juego real: Asteroids
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-10-15
 > **Objetivo:** Portar el clon de Asteroids de `references/started-games/02-asteroids/` a módulos TypeScript con un `<canvas>` y ejecutarlo como el juego `rocas` en `/juego/rocas/jugar`, integrado con el HUD, la pausa y el guardado de puntuación del reproductor existente.

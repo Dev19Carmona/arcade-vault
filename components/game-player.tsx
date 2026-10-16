@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AsteroidsCanvas } from "@/components/games/asteroids-canvas";
 import { useSession } from "@/components/session-provider";
+import type { AsteroidsSnapshot } from "@/lib/games/asteroids/types";
 import { ROUTES } from "@/lib/routes";
 
 const LIVES = 3;
 const POINTS_PER_LEVEL = 2500;
 
+// Juegos con motor real; el resto sigue con la simulación.
+const ASTEROIDS_ID = "rocas";
+
 export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: string }) {
   const { user, saveScore } = useSession();
-  const [score, setScore] = useState(0);
+  const isAsteroids = gameId === ASTEROIDS_ID;
+  const [simScore, setSimScore] = useState(0);
+  const [snapshot, setSnapshot] = useState<AsteroidsSnapshot | null>(null);
+  const [runId, setRunId] = useState(0);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
   const [typedName, setTypedName] = useState<string | null>(null);
@@ -18,17 +26,20 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
 
   // El nombre sale de la sesión salvo que el jugador lo edite en el modal.
   const name = typedName ?? user?.name ?? "INVITADO";
-  const level = 1 + Math.floor(score / POINTS_PER_LEVEL);
+  const score = isAsteroids ? (snapshot?.score ?? 0) : simScore;
+  const lives = isAsteroids ? (snapshot?.lives ?? LIVES) : LIVES;
+  const level = isAsteroids ? (snapshot?.level ?? 1) : 1 + Math.floor(score / POINTS_PER_LEVEL);
 
   // Simulación: no hay juego real, el puntaje sube solo mientras no haya pausa ni fin.
   useEffect(() => {
-    if (over || paused) return;
-    const t = setInterval(() => setScore((s) => s + Math.floor(10 + Math.random() * 90)), 220);
+    if (isAsteroids || over || paused) return;
+    const t = setInterval(() => setSimScore((s) => s + Math.floor(10 + Math.random() * 90)), 220);
     return () => clearInterval(t);
-  }, [over, paused]);
+  }, [isAsteroids, over, paused]);
 
   const restart = () => {
-    setScore(0);
+    setSimScore(0);
+    setRunId((id) => id + 1);
     setPaused(false);
     setOver(false);
     setSaved(false);
@@ -55,7 +66,7 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
           </div>
           <div className="hud-stat lives">
             <div className="l">Vidas</div>
-            <div className="v">{"♥ ".repeat(LIVES).trim()}</div>
+            <div className="v">{"♥ ".repeat(lives).trim()}</div>
           </div>
           <div className="hud-stat level">
             <div className="l">Nivel</div>
@@ -77,13 +88,22 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
 
       <div className="crt">
         <div className="crt-screen">
-          <div className="game-arena">
-            <div className="grid-floor"></div>
-            <div className="enemy e1"></div>
-            <div className="enemy e2"></div>
-            <div className="enemy e3"></div>
-            <div className="player-ship"></div>
-          </div>
+          {isAsteroids ? (
+            <AsteroidsCanvas
+              paused={paused || over}
+              runId={runId}
+              onChange={setSnapshot}
+              onGameOver={() => setOver(true)}
+            />
+          ) : (
+            <div className="game-arena">
+              <div className="grid-floor"></div>
+              <div className="enemy e1"></div>
+              <div className="enemy e2"></div>
+              <div className="enemy e3"></div>
+              <div className="player-ship"></div>
+            </div>
+          )}
           {paused && (
             <div className="crt-content" style={{ background: "rgba(0,0,0,0.6)", zIndex: 5 }}>
               <div>
