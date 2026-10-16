@@ -53,10 +53,10 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
   return (
     <div className="av-player fade-in">
       <div className="player-hud">
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div className="hud-stats">
           <div className="hud-stat">
             <div className="l">Jugador</div>
-            <div className="v" style={{ color: "var(--ink)" }}>
+            <div className="v name" style={{ color: "var(--ink)" }}>
               {name}
             </div>
           </div>
@@ -86,44 +86,46 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
         </div>
       </div>
 
-      <div className="crt">
-        <div className="crt-screen">
-          {isAsteroids ? (
-            <AsteroidsCanvas
-              paused={paused || over}
-              runId={runId}
-              onChange={setSnapshot}
-              onGameOver={() => setOver(true)}
-            />
-          ) : (
-            <div className="game-arena">
-              <div className="grid-floor"></div>
-              <div className="enemy e1"></div>
-              <div className="enemy e2"></div>
-              <div className="enemy e3"></div>
-              <div className="player-ship"></div>
-            </div>
-          )}
-          {paused && (
-            <div className="crt-content" style={{ background: "rgba(0,0,0,0.6)", zIndex: 5 }}>
-              <div>
-                <div className="pixel neon-yellow" style={{ fontSize: 22 }}>
-                  EN PAUSA
-                </div>
-                <div
-                  className="mono"
-                  style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 10, letterSpacing: "0.16em" }}
-                >
-                  PULSA REANUDAR PARA CONTINUAR
+      <div className="player-stage">
+        <div className="crt">
+          <div className="crt-screen">
+            {isAsteroids ? (
+              <AsteroidsCanvas
+                paused={paused || over}
+                runId={runId}
+                onChange={setSnapshot}
+                onGameOver={() => setOver(true)}
+              />
+            ) : (
+              <div className="game-arena">
+                <div className="grid-floor"></div>
+                <div className="enemy e1"></div>
+                <div className="enemy e2"></div>
+                <div className="enemy e3"></div>
+                <div className="player-ship"></div>
+              </div>
+            )}
+            {paused && (
+              <div className="crt-content" style={{ background: "rgba(0,0,0,0.6)", zIndex: 5 }}>
+                <div>
+                  <div className="pixel neon-yellow" style={{ fontSize: 22 }}>
+                    EN PAUSA
+                  </div>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 10, letterSpacing: "0.16em" }}
+                  >
+                    PULSA REANUDAR PARA CONTINUAR
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-        <div className="crt-bottom">
-          <span className="led">SEÑAL OK</span>
-          <span>{gameTitle} · CRT-83 · 60 HZ</span>
-          <span>CARGA · 1MB</span>
+            )}
+          </div>
+          <div className="crt-bottom">
+            <span className="led">SEÑAL OK</span>
+            <span>{gameTitle} · CRT-83 · 60 HZ</span>
+            <span>CARGA · 1MB</span>
+          </div>
         </div>
       </div>
 

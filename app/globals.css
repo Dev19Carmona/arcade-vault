@@ -196,7 +196,9 @@ a { color: inherit; text-decoration: none; }
 .av-nav .hamburger { display: none; }
 
 @media (max-width: 840px) {
-  .av-nav { padding: 12px 16px; }
+  .av-nav { padding: 12px 16px; gap: 10px; }
+  .av-nav .auth-btn { margin-left: 0; }
+  .av-nav .btn { padding-left: 14px; padding-right: 14px; }
   .av-nav .links { display: none; }
   .av-nav .coin-counter { display: none; }
   .av-nav .hamburger { display: inline-flex; }
@@ -606,31 +608,55 @@ a { color: inherit; text-decoration: none; }
 .lb-row.top3 .rk, .lb-row.top3 .sc { color: var(--bronze); text-shadow: 0 0 6px rgba(217,122,58,0.5); }
 
 /* ===== player ===== */
+/* Pantalla de juego: ocupa exactamente el viewport, sin scroll a ningún tamaño. */
+.av-root:has(.av-player) { height: 100dvh; min-height: 0; overflow: hidden; }
+.av-root:has(.av-player) > footer { display: none; }
+.av-main:has(> .av-player) { min-height: 0; display: flex; flex-direction: column; }
 .av-player {
-  max-width: 1100px;
-  margin: 32px auto;
-  padding: 0 24px 64px;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 1100px; margin: 0 auto;
+  padding: 10px 24px 12px;
 }
 .player-hud {
-  display: flex; gap: 16px; align-items: center; justify-content: space-between;
-  padding: 14px 18px;
+  flex: none;
+  display: flex; gap: 8px 16px; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
   border: 1px solid var(--line);
   background: var(--bg-2);
-  margin-bottom: 18px;
   flex-wrap: wrap;
 }
-.hud-stat { display: flex; flex-direction: column; gap: 4px; }
+.hud-stats { display: flex; gap: 6px 24px; flex-wrap: wrap; min-width: 0; }
+.hud-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hud-stat .v.name { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-actions .btn { padding: 9px 16px; }
 .hud-stat .l { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); letter-spacing: 0.14em; text-transform: uppercase; }
-.hud-stat .v { font-family: var(--pixel); font-size: 16px; color: var(--cyan); text-shadow: 0 0 6px rgba(0,245,255,0.5); }
+.hud-stat .v { font-family: var(--pixel); font-size: clamp(11px, 2.2vmin, 16px); color: var(--cyan); text-shadow: 0 0 6px rgba(0,245,255,0.5); }
 .hud-stat.lives .v { color: var(--magenta); text-shadow: 0 0 6px rgba(255,0,110,0.5); }
 .hud-stat.level .v { color: var(--yellow); text-shadow: 0 0 6px rgba(245,255,0,0.5); }
 .hud-actions { display: flex; gap: 10px; }
 
+/* El escenario es el contenedor de medida: el monitor 4:3 es el mayor que cabe en él. */
+.player-stage {
+  flex: 1; min-height: 0;
+  container-type: size;
+  display: flex; align-items: center; justify-content: center;
+}
 .crt {
+  --pad: clamp(8px, 2.6vmin, 24px);
+  --bar: 26px;   /* franja inferior (margen + texto) */
+  --ring: 16px;  /* aro exterior de box-shadow, para que no se corte */
+  --sw: max(0px, min(
+    calc(100cqw - 2 * var(--pad) - var(--ring)),
+    calc((100cqh - 2 * var(--pad) - var(--bar) - var(--ring)) * 4 / 3)
+  ));
+  box-sizing: content-box;
+  flex: none;
+  width: var(--sw);
   position: relative;
-  border-radius: 28px;
+  border-radius: clamp(14px, 3.4vmin, 28px);
   background: #050507;
-  padding: 24px;
+  padding: var(--pad);
   box-shadow:
     0 0 0 6px #1b1b22,
     0 0 0 7px #2a2a35,
@@ -645,6 +671,7 @@ a { color: inherit; text-decoration: none; }
 }
 .crt-screen {
   position: relative;
+  width: var(--sw);
   aspect-ratio: 4 / 3;
   background: #000;
   border-radius: 12px / 28px;
@@ -673,9 +700,11 @@ a { color: inherit; text-decoration: none; }
   text-align: center;
 }
 .crt-bottom {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-top: 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  height: calc(var(--bar) - 10px);
+  margin-top: 10px;
   padding: 0 8px;
+  overflow: hidden; white-space: nowrap;
   font-family: var(--pixel);
   font-size: 8px;
   color: var(--ink-faint);
@@ -958,7 +987,37 @@ a { color: inherit; text-decoration: none; }
   .av-filters { padding: 0 16px; }
   .av-hall { padding: 0 16px; }
   .av-detail { padding: 0 16px; margin: 24px auto; }
-  .av-player { padding: 0 16px 32px; }
+  .av-player { padding: 8px 12px 10px; gap: 8px; }
+}
+
+/* Pantallas muy estrechas: el nav no puede empujar el botón de menú fuera de la pantalla. */
+@media (max-width: 360px) {
+  .av-nav { padding-left: 10px; padding-right: 10px; gap: 6px; }
+  .av-nav .btn { padding-left: 10px; padding-right: 10px; }
+}
+
+@media (max-width: 300px) {
+  .av-nav .logo-text { display: none; }
+}
+
+@media (max-width: 560px) {
+  .player-hud { padding: 8px 10px; }
+  .hud-stats { width: 100%; justify-content: space-between; gap: 6px 10px; }
+  .hud-stat .l { font-size: 9px; letter-spacing: 0.08em; }
+  .hud-actions { width: 100%; }
+  .hud-actions .btn { flex: 1; padding: 8px 6px; font-size: 9px; letter-spacing: 0.1em; }
+  .crt-bottom span:last-child { display: none; }
+}
+
+/* Pantallas bajas (móvil horizontal, ventanas chatas): se sacrifica lo decorativo. */
+@media (max-height: 520px) {
+  .av-nav { padding-top: 6px; padding-bottom: 6px; }
+  .av-player { padding-top: 6px; gap: 6px; }
+  .hud-stat .l { display: none; }
+  .player-hud { padding: 5px 10px; }
+  .hud-actions .btn { padding: 6px 12px; }
+  .crt { --bar: 0px; }
+  .crt-bottom { display: none; }
 }
 
 /* misc */
