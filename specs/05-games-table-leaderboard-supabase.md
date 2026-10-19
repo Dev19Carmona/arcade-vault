@@ -1,6 +1,6 @@
 # SPEC 06 — Tabla de juegos y leaderboard con Supabase
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** 05-asteroids-game
 > **Fecha:** 2026-05-15
 > **Objetivo:** Migrar los datos de juegos a una tabla `games` en Supabase y conectar
