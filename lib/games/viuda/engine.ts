@@ -57,7 +57,7 @@ import {
 } from "./utils";
 
 type Phase = "draw" | "turn" | "showdown" | "final";
-type ButtonId = "continue" | "swap" | "pass" | "call";
+type ButtonId = "continue" | "swap5" | "swap1" | "pass" | "call";
 
 interface Seat {
   lives: number;
@@ -101,6 +101,7 @@ export function createViudaEngine({
   let lap = 1;
   let actionsInLap = 0;
   let caller: number | null = null;
+  let finalTurnsLeft = 0; // turnos que faltan tras un "llamo" para volver a quien llamó
   let thinkTimer = 0;
   let selOwn: number | null = null;
   let selWidow: number | null = null;
@@ -190,6 +191,7 @@ export function createViudaEngine({
     widow = deck.slice(k, k + HAND_SIZE);
     widowOpen = false;
     caller = null;
+    finalTurnsLeft = 0;
     lap = 1;
     actionsInLap = 0;
     starter = first;
@@ -230,7 +232,7 @@ export function createViudaEngine({
 
     const calledBy =
       caller === null
-        ? "Nadie llamó: duelo tras dos vueltas"
+        ? "Duelo"
         : `${SEAT_NAMES[caller]} ${caller === HUMAN_SEAT ? "llamaste" : "llamó"}`;
     const loserNames = losers.map((i) => SEAT_NAMES[i]).join(", ");
     banner = {
@@ -287,22 +289,24 @@ export function createViudaEngine({
   function endTurn() {
     selOwn = null;
     selWidow = null;
-    actionsInLap++;
-    if (actionsInLap >= aliveSeats().length) {
-      if (lap === 1) {
-        // Nadie llamó en la primera vuelta: se abre la viuda y vuelve a empezar quien abrió.
-        lap = 2;
-        actionsInLap = 0;
-        widowOpen = true;
-        current = starter;
-        for (const seat of seats) seat.caption = "";
-      } else {
+    if (caller !== null) {
+      // Última vuelta tras la llamada: al regresar a quien llamó, se muestran las manos.
+      finalTurnsLeft--;
+      if (finalTurnsLeft <= 0) {
         startShowdown();
         return;
       }
     } else {
-      current = nextAlive(current);
+      actionsInLap++;
+      if (actionsInLap >= aliveSeats().length) {
+        // Vuelta completa sin llamadas: la viuda se abre y las vueltas siguen hasta que alguien llame.
+        lap++;
+        actionsInLap = 0;
+        widowOpen = true;
+        for (const seat of seats) seat.caption = "";
+      }
     }
+    current = nextAlive(current);
     scheduleThink();
   }
 
@@ -314,7 +318,11 @@ export function createViudaEngine({
   function doCall(seat: number) {
     seats[seat].caption = "LLAMO";
     caller = seat;
-    startShowdown();
+    finalTurnsLeft = aliveSeats().length - 1;
+    selOwn = null;
+    selWidow = null;
+    current = nextAlive(seat);
+    scheduleThink();
   }
 
   function doSwapAll(seat: number) {
@@ -353,26 +361,25 @@ export function createViudaEngine({
     const value = handScore(hand);
     const others = aliveSeats().length;
     // Con menos rivales vivos se llama con menos; un poco de ruido para no ser predecible.
-    const threshold = 2.1 - (SEATS - others) * 0.25 + (random() - 0.5) * 0.4;
+    // Cada vuelta sin llamadas baja el umbral, así que tarde o temprano alguien llama.
+    const threshold =
+      2.1 - (SEATS - others) * 0.25 - (lap - 1) * 0.2 + (random() - 0.5) * 0.4;
 
-    if (value >= threshold) {
+    if (caller === null && value >= threshold) {
       doCall(seat);
       return;
     }
-    if (lap === 1) {
-      if (widowOpen) {
-        // Las cartas de la viuda son conocidas: se cambia solo si mejoran la mano.
-        if (handScore(widow) > value + 0.3) doSwapAll(seat);
-        else doPass(seat);
-      } else if (value < 1.1 && random() < 0.75) {
-        doSwapAll(seat);
-      } else {
-        doPass(seat);
-      }
+    if (!widowOpen) {
+      // Viuda boca abajo: no se conoce; con mano débil se arriesga a tomarla entera.
+      if (value < 1.1 && random() < 0.75) doSwapAll(seat);
+      else doPass(seat);
       return;
     }
+    // Viuda abierta: se pueden cambiar las 5 o una carta, solo si mejora la mano.
     const swap = bestSingleSwap(hand);
-    if (swap.gain > 0.15) doSwapOne(seat, swap.own, swap.wid);
+    const gainAll = handScore(widow) - value;
+    if (gainAll > 0.3 && gainAll > swap.gain) doSwapAll(seat);
+    else if (swap.gain > 0.15) doSwapOne(seat, swap.own, swap.wid);
     else doPass(seat);
   }
 
@@ -380,11 +387,12 @@ export function createViudaEngine({
     return phase === "turn" && current === HUMAN_SEAT;
   }
 
-  function humanSwap() {
-    if (!humanTurn()) return;
-    if (lap === 1) {
-      doSwapAll(HUMAN_SEAT);
-    } else if (selOwn !== null && selWidow !== null) {
+  function humanSwapAll() {
+    if (humanTurn()) doSwapAll(HUMAN_SEAT);
+  }
+
+  function humanSwapOne() {
+    if (humanTurn() && widowOpen && selOwn !== null && selWidow !== null) {
       doSwapOne(HUMAN_SEAT, selOwn, selWidow);
     }
   }
@@ -400,8 +408,11 @@ export function createViudaEngine({
       }
     } else if (humanTurn()) {
       if (id === "pass") doPass(HUMAN_SEAT);
-      else if (id === "call") doCall(HUMAN_SEAT);
-      else humanSwap();
+      else if (id === "call") {
+        if (caller === null) doCall(HUMAN_SEAT);
+      }
+      else if (id === "swap5") humanSwapAll();
+      else humanSwapOne();
     }
   }
 
@@ -417,17 +428,37 @@ export function createViudaEngine({
       ];
     }
     if (!humanTurn()) return [];
-    const swapReady = lap === 1 || (selOwn !== null && selWidow !== null);
-    return [
-      {
-        id: "swap",
-        label: lap === 1 ? "CAMBIAR 5 [C]" : "CAMBIAR 1 [C]",
+    const list: ButtonView[] = [];
+    list.push({
+      id: "swap5",
+      label: "CAMBIAR 5 [C]",
+      color: COLOR_CYAN,
+      disabled: false,
+    });
+    if (widowOpen) {
+      list.push({
+        id: "swap1",
+        label: "CAMBIAR 1 [X]",
         color: COLOR_CYAN,
-        disabled: !swapReady,
-      },
-      { id: "pass", label: "PASO [P]", color: COLOR_YELLOW, disabled: false },
-      { id: "call", label: "LLAMO [L]", color: COLOR_MAGENTA, disabled: false },
-    ];
+        disabled: selOwn === null || selWidow === null,
+      });
+    }
+    list.push({
+      id: "pass",
+      label: "PASO [P]",
+      color: COLOR_YELLOW,
+      disabled: false,
+    });
+    // Tras un "llamo" la última vuelta es solo para cambiar o pasar.
+    if (caller === null) {
+      list.push({
+        id: "call",
+        label: "LLAMO [L]",
+        color: COLOR_MAGENTA,
+        disabled: false,
+      });
+    }
+    return list;
   }
 
   function ownRects(count = HAND_SIZE): Rect[] {
@@ -456,8 +487,8 @@ export function createViudaEngine({
         return;
       }
     }
-    // En la segunda vuelta se eligen una carta propia y una de la viuda.
-    if (humanTurn() && lap === 2) {
+    // Con la viuda abierta se eligen una carta propia y una de la viuda.
+    if (humanTurn() && widowOpen) {
       ownRects().forEach((r, i) => {
         if (pointInRect(x, y, r)) selOwn = selOwn === i ? null : i;
       });
@@ -474,8 +505,9 @@ export function createViudaEngine({
     } else if (humanTurn()) {
       if (code === "KeyP") activate("pass");
       else if (code === "KeyL") activate("call");
-      else if (code === "KeyC") humanSwap();
-      else if (lap === 2) {
+      else if (code === "KeyC") humanSwapAll();
+      else if (code === "KeyX") humanSwapOne();
+      else if (widowOpen) {
         const own = OWN_KEYS.indexOf(code);
         const wid = WIDOW_KEYS.indexOf(code);
         if (own >= 0) selOwn = selOwn === own ? null : own;
@@ -496,12 +528,17 @@ export function createViudaEngine({
 
   function statusText(): string {
     if (phase !== "turn") return "";
-    if (humanTurn()) {
-      return lap === 1
-        ? "TU TURNO · cambia las 5 cartas, pasa o llama"
-        : "TU TURNO · viuda abierta: elige 1 carta tuya y 1 de la viuda";
+    if (caller !== null && humanTurn()) {
+      return `${SEAT_NAMES[caller]} llamó · última vuelta: cambia o pasa`;
     }
-    return `${SEAT_NAMES[current]} está pensando…`;
+    if (humanTurn()) {
+      if (!widowOpen) {
+        return "TU TURNO · viuda cerrada: cambia las 5 cartas, pasa o llama";
+      }
+      return "TU TURNO · viuda abierta: cambia las 5, o elige 1 carta tuya y 1 de la viuda";
+    }
+    const lastLap = caller !== null ? " (última vuelta tras la llamada)" : "";
+    return `${SEAT_NAMES[current]} está pensando…${lastLap}`;
   }
 
   function draw(ctx: CanvasRenderingContext2D) {
@@ -534,7 +571,7 @@ export function createViudaEngine({
     }
 
     // La viuda.
-    drawText(ctx, "LA VIUDA", W / 2, WIDOW_Y - 18, {
+    drawText(ctx, "LA VIUDA", W / 2, WIDOW_Y - 30, {
       size: 13,
       bold: true,
       color: COLOR_DIM,
@@ -544,6 +581,7 @@ export function createViudaEngine({
         ctx,
         widow.map((c) => (widowOpen ? c : null)),
         widowRects(),
+        widow.map((_, i) => ({ selected: widowOpen && selWidow === i })),
       );
     }
 

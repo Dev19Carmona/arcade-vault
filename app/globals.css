@@ -535,6 +535,33 @@ a { color: inherit; text-decoration: none; }
   filter: drop-shadow(0 0 6px rgba(0,245,255,0.4));
 }
 
+/* Viuda: tapete verde, la viuda boca abajo en fila y una carta abierta; los tres puntos son las vidas */
+.cover-viuda { background:
+  radial-gradient(circle at 74% 88%, var(--magenta) 0 4px, transparent 5px),
+  radial-gradient(circle at 81% 88%, var(--magenta) 0 4px, transparent 5px),
+  radial-gradient(circle at 88% 88%, var(--magenta) 0 4px, transparent 5px),
+  radial-gradient(ellipse 80% 70% at 50% 55%, #0f5a3a, #04170f); }
+.cover-viuda::before {
+  content: "";
+  position: absolute; inset: 12% 24% auto 24%; height: 26%;
+  background: repeating-linear-gradient(90deg, #1a1a3a 0 17%, transparent 17% 20.75%);
+  border-radius: 3px;
+  filter: drop-shadow(0 0 5px rgba(255,0,110,0.75));
+}
+.cover-viuda::after {
+  content: "A\A♠";
+  white-space: pre;
+  position: absolute; left: 50%; top: 46%;
+  height: 44%; aspect-ratio: 5 / 7;
+  transform: translateX(-50%) rotate(-8deg);
+  padding: 4px 0 0 6px;
+  background: #f4f1e8;
+  color: #15151f;
+  font: 700 18px/1 var(--mono);
+  border-radius: 5px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.55), 0 0 12px rgba(0,255,136,0.35);
+}
+
 /* ===== detail screen ===== */
 .av-detail {
   display: grid;

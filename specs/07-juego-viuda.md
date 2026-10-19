@@ -1,6 +1,6 @@
 # SPEC 07 — Juego real: Viuda
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 04 (patrón motor + canvas), SPEC 05 (tablas `games` y `scores`), SPEC 06 (registro de canvas ya creado)
 > **Fecha:** 2026-10-19
 > **Objetivo:** Crear Viuda, un juego de cartas de póker por vidas contra la computadora, como el juego `viuda` en `/juego/viuda/jugar`, integrado con el HUD, la pausa y el modal de la plataforma, con su fila en la tabla `games` y las puntuaciones guardadas en `scores`.
@@ -25,20 +25,18 @@ Es el tercer juego real; el registro (`components/games/registry.ts`) y `GamePla
 
 **Reparto de cada ronda:** 5 cartas a cada jugador vivo (tus cartas, boca arriba solo para ti; las de las CPU, ocultas) y 5 cartas boca abajo en el centro: **la viuda**.
 
-**Primera vuelta (viuda cerrada).** En su turno cada jugador elige una acción:
+**La viuda empieza siempre boca abajo y solo se abre de dos maneras:** (a) alguien **cambia las 5 cartas** (deja las suyas boca arriba en su lugar) o (b) la primera vuelta regresa al jugador que empezó sin que nadie llamara. **CAMBIAR 5 está disponible siempre** (viuda cerrada o abierta); **CAMBIAR 1 solo con la viuda abierta**.
 
-- **CAMBIAR:** toma las 5 cartas de la viuda y deja sus 5 cartas **boca arriba** en la mesa en su lugar. Las cartas tomadas solo las ve el jugador que las tomó. La viuda queda abierta, con las cartas descartadas visibles para todos. Termina su turno.
-- **PASO:** pasa el turno al siguiente.
-- **LLAMO:** va directo al duelo (ver más abajo).
+- **Viuda cerrada:** CAMBIAR 5, PASO o LLAMO.
+- **Viuda abierta:** CAMBIAR 5, CAMBIAR 1, PASO o LLAMO.
 
-**Apertura.** Si la vuelta regresa al jugador que empezó sin que nadie llamara, se abre la viuda (si seguía cerrada) para todos y empieza la **segunda y última vuelta**, comenzando por quien empezó.
+**CAMBIAR 5:** toma las 5 cartas de la viuda y deja sus 5 cartas **boca arriba** en la mesa en su lugar. Las cartas tomadas solo las ve el jugador que las tomó. **CAMBIAR 1:** toma **una** carta de la viuda y deja **una** de su mano. **PASO:** pasa el turno al siguiente. **LLAMO:** va directo al duelo.
 
-**Segunda vuelta (viuda abierta).** Las opciones son:
+**Primera vuelta.** Cada jugador actúa una vez, empezando por el iniciador, con la viuda cerrada salvo que alguien la abra al cambiar 5.
 
-- **CAMBIAR 1:** toma **una** carta de la viuda y deja **una** de su mano en su lugar.
-- **PASO** o **LLAMO**, igual que antes.
+**Apertura y vueltas ilimitadas.** Si la vuelta regresa al jugador que empezó sin que nadie llamara, se abre la viuda (si seguía cerrada) para todos y las vueltas continúan **sin límite hasta que alguien llame**: nunca hay duelo solo porque nadie llamó.
 
-Si nadie llama al terminar esa vuelta, hay duelo igualmente.
+**Llamada y última vuelta.** Cuando alguien dice "llamo", el resto de jugadores vivos juega **una vuelta más** (solo CAMBIAR 5, CAMBIAR 1 o PASO; ya no se puede volver a llamar). Al regresar el turno a quien llamó, se muestran todas las manos y hay duelo.
 
 **Duelo.** Todos los jugadores vivos muestran su mano de 5 cartas (la viuda no participa). Gana la mejor mano de póker estándar (carta alta < par < doble par < terna < escalera < color < full house < póker < escalera de color; el as vale alto o bajo en A-2-3-4-5; los desempates se resuelven por rango de las cartas, los palos no desempatan). **Pierde 1 vida el jugador con la mano más baja**; si hay empate en la peor mano, pierden todos los empatados. Quien tenga 0 vidas queda eliminado y sale de la mesa.
 
@@ -81,10 +79,10 @@ Si nadie llama al terminar esa vuelta, hay duelo igualmente.
 | Acción                            | Ratón                                                          | Teclado                                                           |
 | --------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Continuar (sorteo, duelo, final)  | Botón CONTINUAR                                                | `Espacio` / `Enter`                                               |
-| Cambiar (5 cartas, viuda cerrada) | Botón CAMBIAR                                                  | `C`                                                               |
+| Cambiar 5 (siempre) | Botón CAMBIAR 5 | `C` |
 | Paso                              | Botón PASO                                                     | `P`                                                               |
 | Llamo                             | Botón LLAMO                                                    | `L`                                                               |
-| Cambiar 1 (viuda abierta)         | Clic en carta propia, clic en carta de la viuda, botón CAMBIAR | `1`–`5` carta propia, `Q W E R T` carta de la viuda, `C` confirma |
+| Cambiar 1 (viuda abierta) | Clic en carta propia, clic en carta de la viuda, botón CAMBIAR 1 | `1`–`5` carta propia, `Q W E R T` carta de la viuda, `X` confirma |
 
 `preventDefault` solo sobre estas teclas y nunca dentro de inputs.
 
@@ -161,28 +159,28 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` la guía de Cl
 
 ## Criterios de aceptación
 
-- [ ] `npm run lint` y `npm run build` terminan sin errores.
-- [ ] `/juego/viuda/jugar` muestra la mesa real; Asteroids, Tetris y los simulados conservan su comportamiento.
-- [ ] Sorteo inicial: cada jugador saca una carta y empieza la más alta; en rondas siguientes empieza quien perdió vida.
-- [ ] Se reparten 5 cartas por jugador y 5 a la viuda; solo ves tu mano; la viuda empieza oculta.
-- [ ] CAMBIAR intercambia 5 por 5, me muestra lo tomado y deja las cartas descartadas visibles en la viuda.
-- [ ] Si todos pasan, la viuda se abre en el jugador que empezó y comienza la segunda vuelta con CAMBIAR 1.
-- [ ] LLAMO y el fin de la segunda vuelta llevan al duelo; la mano más baja pierde 1 vida (los empatados en la peor, todos).
-- [ ] El evaluador distingue las 9 categorías, incluida A-2-3-4-5, y desempata por rangos.
-- [ ] Los jugadores eliminados salen de los turnos; la partida termina al quedar uno vivo o al perder tú.
-- [ ] Puntuación: victoria = `3000 + 300 × vidas`; derrota = 0.
-- [ ] Las teclas del juego no hacen scroll ni activan botones con foco; el ratón funciona a cualquier escala.
-- [ ] El HUD muestra vidas reales, `RONDA` y `RIVALES`, y se actualiza al jugar.
-- [ ] Al terminar se abre el modal "FIN DEL JUEGO" al pulsar continuar en el resultado final; no se dibuja ningún overlay de modal en el canvas.
-- [ ] "FIN" abre el modal inmediatamente con el puntaje actual.
-- [ ] "PAUSA" congela el juego y muestra "EN PAUSA"; "REANUDAR" continúa sin saltos.
-- [ ] "JUGAR DE NUEVO" empieza una partida limpia.
-- [ ] La fila `viuda` existe en `games` y el juego aparece en `/games` y `/juego/viuda`.
-- [ ] "GUARDAR PUNTUACIÓN" inserta en `scores` con `game_id: "viuda"`.
-- [ ] El score aparece en el top 10 de `/juego/viuda` y en `/salon` al recargar; sin scores, "Sé el primero en entrar al salón de la fama".
-- [ ] Salir y volver no duplica listeners ni velocidad del bucle.
-- [ ] A 375 px no hay scroll horizontal y el canvas se ve completo.
-- [ ] Sin warnings de hidratación ni errores nuevos en la consola.
+- [x] `npm run lint` y `npm run build` terminan sin errores.
+- [x] `/juego/viuda/jugar` muestra la mesa real; Asteroids, Tetris y los simulados conservan su comportamiento.
+- [x] Sorteo inicial: cada jugador saca una carta y empieza la más alta; en rondas siguientes empieza quien perdió vida.
+- [x] Se reparten 5 cartas por jugador y 5 a la viuda; solo ves tu mano; la viuda empieza oculta.
+- [x] CAMBIAR intercambia 5 por 5, me muestra lo tomado y deja las cartas descartadas visibles en la viuda.
+- [x] Si todos pasan, la viuda se abre en el jugador que empezó y las vueltas continúan sin límite hasta que alguien llame.
+- [x] Tras LLAMO, los demás juegan una última vuelta (cambiar o pasar); al regresar a quien llamó se muestran todas las manos y la mano más baja pierde 1 vida (los empatados en la peor, todos).
+- [x] El evaluador distingue las 9 categorías, incluida A-2-3-4-5, y desempata por rangos.
+- [x] Los jugadores eliminados salen de los turnos; la partida termina al quedar uno vivo o al perder tú.
+- [x] Puntuación: victoria = `3000 + 300 × vidas`; derrota = 0.
+- [x] Las teclas del juego no hacen scroll ni activan botones con foco; el ratón funciona a cualquier escala.
+- [x] El HUD muestra vidas reales, `RONDA` y `RIVALES`, y se actualiza al jugar.
+- [x] Al terminar se abre el modal "FIN DEL JUEGO" al pulsar continuar en el resultado final; no se dibuja ningún overlay de modal en el canvas.
+- [x] "FIN" abre el modal inmediatamente con el puntaje actual.
+- [x] "PAUSA" congela el juego y muestra "EN PAUSA"; "REANUDAR" continúa sin saltos.
+- [x] "JUGAR DE NUEVO" empieza una partida limpia.
+- [x] La fila `viuda` existe en `games` y el juego aparece en `/games` y `/juego/viuda`.
+- [x] "GUARDAR PUNTUACIÓN" inserta en `scores` con `game_id: "viuda"`.
+- [x] El score aparece en el top 10 de `/juego/viuda` y en `/salon` al recargar; sin scores, "Sé el primero en entrar al salón de la fama".
+- [x] Salir y volver no duplica listeners ni velocidad del bucle.
+- [x] A 375 px no hay scroll horizontal y el canvas se ve completo.
+- [x] Sin warnings de hidratación ni errores nuevos en la consola.
 
 ---
 
@@ -193,7 +191,7 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` la guía de Cl
 - **Sí:** pierde vida solo la peor mano del duelo (decisión del usuario); empate en la peor, pierden todos los empatados.
 - **Sí:** puntuación solo por victoria (decisión del usuario); derrota = 0.
 - **Sí:** `ARCADE` / `green` / `cover-viuda` (los CHECK solo admiten `ARCADE|PUZZLE|SHOOTER`).
-- **Sí:** segunda vuelta única tras abrir la viuda, para que la partida siempre termine.
+- **Sí:** vueltas ilimitadas hasta que alguien llame (decisión del usuario); las CPU bajan su umbral de llamada en cada vuelta sin llamadas, así que la ronda siempre termina.
 - **Sí:** el modal se abre tras pulsar continuar en el resultado final, para que se vea el duelo decisivo.
 - **No:** `<iframe>` ni `next/script`.
 - **No:** audio, táctil ni apuestas, por alcance de MVP.
@@ -211,7 +209,7 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` la guía de Cl
 | Canvas desproporcionado en móvil / clic desalineado  | Resolución lógica 800×600; conversión con `getBoundingClientRect()`  |
 | Teclado inalcanzable en móvil                        | El ratón/clic cubre todas las acciones; táctil en un spec propio     |
 | Errores en el evaluador de manos                     | Utilidades puras; casos límite revisados a mano en la verificación   |
-| Partida infinita por pasos sucesivos                 | Máximo dos vueltas por ronda, duelo forzoso                          |
+| Partida infinita por pasos sucesivos                 | Las CPU bajan el umbral de llamada en cada vuelta sin llamadas        |
 | Puntuación 0 en derrota llena el leaderboard         | Aceptado por decisión del usuario; se revisa en un spec posterior    |
 | RLS abierta permite scores falsos                    | Riesgo asumido en SPEC 05; se resuelve en un spec de seguridad       |
 
