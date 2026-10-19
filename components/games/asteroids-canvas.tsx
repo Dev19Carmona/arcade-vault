@@ -3,17 +3,8 @@
 import { useEffect, useRef } from "react";
 import { H, W } from "@/lib/games/asteroids/constants";
 import { createAsteroidsEngine } from "@/lib/games/asteroids/engine";
-import type {
-  AsteroidsEngine,
-  AsteroidsSnapshot,
-} from "@/lib/games/asteroids/types";
-
-interface AsteroidsCanvasProps {
-  paused: boolean;
-  runId: number;
-  onChange: (snapshot: AsteroidsSnapshot) => void;
-  onGameOver: (finalScore: number) => void;
-}
+import type { AsteroidsEngine } from "@/lib/games/asteroids/types";
+import type { GameCanvasProps } from "@/lib/games/types";
 
 const GAME_KEYS = new Set([
   "ArrowLeft",
@@ -36,7 +27,7 @@ export function AsteroidsCanvas({
   runId,
   onChange,
   onGameOver,
-}: AsteroidsCanvasProps) {
+}: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<AsteroidsEngine | null>(null);
   const pausedRef = useRef(paused);
@@ -58,7 +49,8 @@ export function AsteroidsCanvas({
     if (!canvas || !ctx) return;
 
     const engine = createAsteroidsEngine({
-      onChange: (snapshot) => onChangeRef.current(snapshot),
+      onChange: ({ score, lives, level }) =>
+        onChangeRef.current({ score, lives, level }),
       onGameOver: (finalScore) => onGameOverRef.current(finalScore),
     });
     engineRef.current = engine;

@@ -45,7 +45,10 @@ Convención para portar un juego real (el resto del catálogo en `lib/games.ts` 
 - **Motor** en `lib/games/<juego>/`: TypeScript sin `window`/`document`; expone `createXEngine({ onChange, onGameOver })` con `update(dt)`, `draw(ctx)`, `setKeys`, `reset` y `getSnapshot`. Las entidades reciben el `ctx` por parámetro.
 - **Componente** en `components/games/<juego>-canvas.tsx` (client): monta el `<canvas>`, registra teclado y `requestAnimationFrame`, y los limpia al desmontar. Props: `paused`, `runId` (cambiarlo reinicia), `onChange`, `onGameOver`. Escalado con `.game-canvas` en `app/globals.css`.
 - **Integración**: `GamePlayer` elige el canvas real según `gameId`; el HUD, la pausa y el modal de fin son de la plataforma y el puntaje se guarda con `saveScore` (`av_scores`).
-- **Juegos reales**: `rocas` (Asteroids, `lib/games/asteroids/`; solo teclado: `←` `→` `↑` `Espacio`). Fuente original en `references/started-games/02-asteroids/`.
+- **Registro**: `components/games/registry.ts` mapea el `id` de la tabla `games` al canvas real (`GAME_CANVASES`); `GamePlayer` lo consulta y, sin entrada, usa la simulación. Los canvas emiten `GameSnapshot` (`lib/games/types.ts`: `score`, y opcionales `lives`, `level`, `stats`); el HUD solo muestra lo que el juego reporta.
+- **Juegos reales**:
+  - `asteroids` (Asteroids, `lib/games/asteroids/`; solo teclado: `←` `→` `↑` `Espacio`). Fuente original en `references/started-games/02-asteroids/`.
+  - `tetris` (Tetris, `lib/games/tetris/`; canvas 800×600 con tablero 10×20 centrado y vista previa a la derecha; 8 piezas, incluida la tuerca; solo teclado: `←` `→` mover, `↑`/`X` rotar, `↓` soft drop, `Espacio` hard drop). Fuente original en `references/started-games/03-tetris/`.
 
 ## `references/templates/`
 

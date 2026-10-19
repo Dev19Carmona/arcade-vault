@@ -1,0 +1,51 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e2]:
+    - navigation [ref=f3e3]:
+      - link "ARCADE VAULT" [ref=f3e4] [cursor=pointer]:
+        - /url: /
+      - link "Iniciar Sesión" [ref=f3e46] [cursor=pointer]:
+        - /url: /acceso
+      - button "Abrir menú" [ref=f3e7] [cursor=pointer]: ≡
+    - complementary [aria-hidden] [ref=f3e8]:
+      - generic [ref=f3e9]: MENÚ
+      - link [ref=f3e10] [cursor=pointer]:
+        - /url: /
+        - text: Inicio
+      - link [ref=f3e11] [cursor=pointer]:
+        - /url: /games
+        - text: Biblioteca
+      - link [ref=f3e12] [cursor=pointer]:
+        - /url: /salon
+        - text: Salón de la Fama
+      - link [ref=f3e13] [cursor=pointer]:
+        - /url: /acceso
+        - text: Iniciar Sesión
+      - generic [ref=f3e15]: CRÉDITOS · 03
+    - main [ref=f3e16]:
+      - generic [ref=f3e17]:
+        - generic [ref=f3e18]:
+          - generic [ref=f3e19]:
+            - generic [ref=f3e20]:
+              - generic [ref=f3e21]: Jugador
+              - generic [ref=f3e22]: TESTCLAUDE
+            - generic [ref=f3e23]:
+              - generic [ref=f3e24]: Puntuación
+              - generic [ref=f3e25]: "0"
+            - generic [ref=f3e47]:
+              - generic [ref=f3e48]: Nivel
+              - generic [ref=f3e49]: "01"
+            - generic [ref=f3e50]:
+              - generic [ref=f3e51]: LÍNEAS
+              - generic [ref=f3e52]: "0"
+          - generic [ref=f3e26]:
+            - button "PAUSA" [ref=f3e27] [cursor=pointer]
+            - button "FIN" [ref=f3e28] [cursor=pointer]
+            - link "SALIR" [ref=f3e29] [cursor=pointer]:
+              - /url: /juego/tetris
+        - generic [ref=f3e31]:
+          - generic "Tetris" [ref=f3e33]
+          - generic [ref=f3e34]:
+            - generic [ref=f3e35]: SEÑAL OK
+            - generic [ref=f3e36]: TETRIS · CRT-83 · 60 HZ
+  - button "Open Next.js Dev Tools" [ref=f3e42] [cursor=pointer]
+  - alert [ref=f3e53]

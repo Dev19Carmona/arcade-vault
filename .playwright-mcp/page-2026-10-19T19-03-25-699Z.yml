@@ -1,0 +1,72 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - link "ARCADE VAULT" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e7]:
+        - link "Inicio" [ref=e8] [cursor=pointer]:
+          - /url: /
+        - link "Biblioteca" [ref=e9] [cursor=pointer]:
+          - /url: /games
+        - link "Salón de la Fama" [ref=e10] [cursor=pointer]:
+          - /url: /salon
+      - generic [ref=e11]: CRÉDITOS · 03
+      - link "Iniciar Sesión" [ref=e53] [cursor=pointer]:
+        - /url: /acceso
+    - complementary [aria-hidden] [ref=e14]:
+      - generic [ref=e15]: MENÚ
+      - link [ref=e16] [cursor=pointer]:
+        - /url: /
+        - text: Inicio
+      - link [ref=e17] [cursor=pointer]:
+        - /url: /games
+        - text: Biblioteca
+      - link [ref=e18] [cursor=pointer]:
+        - /url: /salon
+        - text: Salón de la Fama
+      - link [ref=e19] [cursor=pointer]:
+        - /url: /acceso
+        - text: Iniciar Sesión
+      - generic [ref=e21]: CRÉDITOS · 03
+    - main [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]:
+            - generic [ref=e26]:
+              - generic [ref=e27]: Jugador
+              - generic [ref=e28]: INVITADO
+            - generic [ref=e29]:
+              - generic [ref=e30]: Puntuación
+              - generic [ref=e31]: "22"
+            - generic [ref=e54]:
+              - generic [ref=e55]: Nivel
+              - generic [ref=e56]: "01"
+            - generic [ref=e57]:
+              - generic [ref=e58]: LÍNEAS
+              - generic [ref=e59]: "0"
+          - generic [ref=e32]:
+            - button "PAUSA" [ref=e66] [cursor=pointer]
+            - button "FIN" [active] [ref=e34] [cursor=pointer]
+            - link "SALIR" [ref=e35] [cursor=pointer]:
+              - /url: /juego/tetris
+        - generic [ref=e37]:
+          - generic "Tetris" [ref=e39]
+          - generic [ref=e40]:
+            - generic [ref=e41]: SEÑAL OK
+            - generic [ref=e42]: TETRIS · CRT-83 · 60 HZ
+            - generic [ref=e43]: CARGA · 1MB
+        - dialog "Fin del juego" [ref=e68]:
+          - heading "FIN DEL JUEGO" [level=2] [ref=e69]
+          - generic [ref=e70]: PUNTUACIÓN FINAL
+          - generic [ref=e71]: "22"
+          - generic [ref=e72]:
+            - textbox "Tus iniciales" [ref=e73]:
+              - /placeholder: TUS INICIALES
+              - text: INVITADO
+            - button "GUARDAR PUNTUACIÓN" [ref=e74] [cursor=pointer]
+          - generic [ref=e75]:
+            - button "JUGAR DE NUEVO" [ref=e76] [cursor=pointer]
+            - link "VOLVER AL VAULT" [ref=e77] [cursor=pointer]:
+              - /url: /games
+  - button "Open Next.js Dev Tools" [ref=e49] [cursor=pointer]
+  - alert [ref=e65]

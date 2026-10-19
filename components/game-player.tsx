@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { AsteroidsCanvas } from "@/components/games/asteroids-canvas";
+import { GAME_CANVASES } from "@/components/games/registry";
 import { useSession } from "@/components/session-provider";
-import type { AsteroidsSnapshot } from "@/lib/games/asteroids/types";
+import type { GameSnapshot } from "@/lib/games/types";
 import { ROUTES } from "@/lib/routes";
 import {
   getPlayerNameSnapshot,
@@ -16,9 +16,6 @@ import { createClient } from "@/lib/supabase/client";
 const LIVES = 3;
 const POINTS_PER_LEVEL = 2500;
 
-// Juegos con motor real; el resto sigue con la simulación.
-const ASTEROIDS_ID = "asteroids";
-
 export function GamePlayer({
   gameId,
   gameTitle,
@@ -27,9 +24,10 @@ export function GamePlayer({
   gameTitle: string;
 }) {
   const { user } = useSession();
-  const isAsteroids = gameId === ASTEROIDS_ID;
+  // Juegos con motor real en el registro; el resto sigue con la simulación.
+  const Canvas = GAME_CANVASES[gameId];
   const [simScore, setSimScore] = useState(0);
-  const [snapshot, setSnapshot] = useState<AsteroidsSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [runId, setRunId] = useState(0);
   const [paused, setPaused] = useState(false);
   const [over, setOver] = useState(false);
@@ -46,24 +44,27 @@ export function GamePlayer({
 
   // Prioridad: lo que el jugador edite en el modal, luego el último nombre guardado, luego la sesión.
   const name = typedName ?? storedName ?? user?.name ?? "INVITADO";
-  const score = isAsteroids ? (snapshot?.score ?? 0) : simScore;
-  const lives = isAsteroids ? (snapshot?.lives ?? LIVES) : LIVES;
-  const level = isAsteroids
-    ? (snapshot?.level ?? 1)
+  const score = Canvas ? (snapshot?.score ?? 0) : simScore;
+  // En juegos reales el HUD solo muestra lo que el juego reporta.
+  const lives = Canvas ? snapshot?.lives : LIVES;
+  const level = Canvas
+    ? snapshot?.level
     : 1 + Math.floor(score / POINTS_PER_LEVEL);
+  const stats = Canvas ? (snapshot?.stats ?? []) : [];
 
   // Simulación: no hay juego real, el puntaje sube solo mientras no haya pausa ni fin.
   useEffect(() => {
-    if (isAsteroids || over || paused) return;
+    if (Canvas || over || paused) return;
     const t = setInterval(
       () => setSimScore((s) => s + Math.floor(10 + Math.random() * 90)),
       220,
     );
     return () => clearInterval(t);
-  }, [isAsteroids, over, paused]);
+  }, [Canvas, over, paused]);
 
   const restart = () => {
     setSimScore(0);
+    setSnapshot(null);
     setRunId((id) => id + 1);
     setPaused(false);
     setOver(false);
@@ -108,14 +109,24 @@ export function GamePlayer({
             <div className="l">Puntuación</div>
             <div className="v">{score.toLocaleString("es-ES")}</div>
           </div>
-          <div className="hud-stat lives">
-            <div className="l">Vidas</div>
-            <div className="v">{"♥ ".repeat(lives).trim()}</div>
-          </div>
-          <div className="hud-stat level">
-            <div className="l">Nivel</div>
-            <div className="v">{String(level).padStart(2, "0")}</div>
-          </div>
+          {lives !== undefined && (
+            <div className="hud-stat lives">
+              <div className="l">Vidas</div>
+              <div className="v">{"♥ ".repeat(lives).trim()}</div>
+            </div>
+          )}
+          {level !== undefined && (
+            <div className="hud-stat level">
+              <div className="l">Nivel</div>
+              <div className="v">{String(level).padStart(2, "0")}</div>
+            </div>
+          )}
+          {stats.map((s) => (
+            <div className="hud-stat" key={s.label}>
+              <div className="l">{s.label}</div>
+              <div className="v">{s.value}</div>
+            </div>
+          ))}
         </div>
         <div className="hud-actions">
           <button
@@ -141,8 +152,8 @@ export function GamePlayer({
       <div className="player-stage">
         <div className="crt">
           <div className="crt-screen">
-            {isAsteroids ? (
-              <AsteroidsCanvas
+            {Canvas ? (
+              <Canvas
                 paused={paused || over}
                 runId={runId}
                 onChange={setSnapshot}
