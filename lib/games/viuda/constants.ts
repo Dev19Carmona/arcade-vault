@@ -57,3 +57,44 @@ export const HAND_NAMES: Record<HandCategory, string> = {
   7: "PÓKER",
   8: "ESCALERA DE COLOR",
 };
+
+// Colores del tapete (tokens de la plataforma, fijos porque el motor no toca el DOM).
+export const COLOR_FELT = "#0b3d2a";
+export const COLOR_FELT_DARK = "#07281c";
+export const COLOR_INK = "#e8e8f0";
+export const COLOR_DIM = "#8a8aa0";
+export const COLOR_CYAN = "#00f5ff";
+export const COLOR_MAGENTA = "#ff006e";
+export const COLOR_YELLOW = "#f5ff00";
+export const COLOR_GREEN = "#00ff88";
+export const COLOR_CARD = "#f4f1e8";
+export const COLOR_RED_SUIT = "#d62839";
+export const COLOR_BLACK_SUIT = "#15151f";
+
+export const FONT = "ui-monospace, Menlo, Consolas, monospace";
+
+// Geometría lógica de la mesa.
+export const CARD_W = 64;
+export const CARD_H = 90;
+export const CARD_GAP = 12;
+export const HAND_Y = 440;
+
+export const WIDOW_CARD_W = 56;
+export const WIDOW_CARD_H = 80;
+export const WIDOW_GAP = 10;
+export const WIDOW_Y = 235;
+
+export const SEAT_W = 150;
+export const SEAT_H = 120;
+
+// Esquina superior izquierda del panel de cada CPU, por asiento (el 0 es el jugador).
+export const SEAT_POSITIONS: Record<number, { x: number; y: number }> = {
+  1: { x: 24, y: 215 },
+  2: { x: (W - SEAT_W) / 2, y: 28 },
+  3: { x: W - SEAT_W - 24, y: 215 },
+};
+
+export const BUTTON_W = 150;
+export const BUTTON_H = 38;
+export const BUTTON_GAP = 16;
+export const BUTTON_Y = 550;

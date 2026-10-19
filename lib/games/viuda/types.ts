@@ -39,3 +39,10 @@ export interface HandValue {
   // Rangos que desempatan, de más a menos importante (los palos no desempatan).
   tiebreak: number[];
 }
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
