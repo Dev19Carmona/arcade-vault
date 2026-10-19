@@ -1,0 +1,37 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - link "ARCADE VAULT" [ref=e4] [cursor=pointer]:
+      - /url: /
+    - generic [ref=e7]:
+      - link "Inicio" [ref=e8] [cursor=pointer]:
+        - /url: /
+      - link "Biblioteca" [ref=e9] [cursor=pointer]:
+        - /url: /games
+      - link "Salón de la Fama" [ref=e10] [cursor=pointer]:
+        - /url: /salon
+    - generic [ref=e11]: CRÉDITOS · 03
+  - complementary [aria-hidden] [ref=e14]:
+    - generic [ref=e15]: MENÚ
+    - link [ref=e16] [cursor=pointer]:
+      - /url: /
+      - text: Inicio
+    - link [ref=e17] [cursor=pointer]:
+      - /url: /games
+      - text: Biblioteca
+    - link [ref=e18] [cursor=pointer]:
+      - /url: /salon
+      - text: Salón de la Fama
+    - link [ref=e19] [cursor=pointer]:
+      - /url: /acceso
+      - text: Iniciar Sesión
+    - generic [ref=e21]: CRÉDITOS · 03
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - heading "SALÓN DE LA FAMA" [level=1] [ref=e25]
+        - paragraph [ref=e26]: LOS NOMBRES QUE NUNCA SE BORRAN DE LA PANTALLA
+      - button "ASTEROIDS" [pressed] [ref=e28] [cursor=pointer]
+      - generic [ref=e29]: CARGANDO…
+      - link "VOLVER A LA BIBLIOTECA" [ref=e31] [cursor=pointer]:
+        - /url: /games
+  - contentinfo [ref=e32]: © 2026 ARCADE VAULT · HECHO CON PIXELES Y NEÓN · v2.6.0

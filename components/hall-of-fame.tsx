@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useSession } from "@/components/session-provider";
-import { GAMES, seededScores } from "@/lib/games";
-import type { ScoreRow } from "@/lib/games";
+import { useEffect, useState } from "react";
 import { ROUTES } from "@/lib/routes";
+import { createClient } from "@/lib/supabase/client";
+import type { GameRow, ScoreRow } from "@/lib/supabase/types";
+
+const TOP = 12;
 
 const fmt = (n: number) => n.toLocaleString("es-ES");
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 
 function Podium({ rows }: { rows: ScoreRow[] }) {
   const [first, second, third] = rows;
@@ -15,41 +22,65 @@ function Podium({ rows }: { rows: ScoreRow[] }) {
     <div className="podium">
       <div className="podium-slot silver">
         <div className="rank-num">02</div>
-        <div className="name">{second.name}</div>
-        <div className="score">{fmt(second.score)}</div>
-        <div className="date">{second.date}</div>
+        <div className="name">{second?.player_name ?? "—"}</div>
+        <div className="score">{second ? fmt(second.score) : "—"}</div>
+        <div className="date">{second ? fmtDate(second.created_at) : ""}</div>
       </div>
       <div className="podium-slot gold">
-        <div className="pixel" style={{ fontSize: 9, color: "var(--gold)", letterSpacing: "0.18em" }}>
+        <div
+          className="pixel"
+          style={{ fontSize: 9, color: "var(--gold)", letterSpacing: "0.18em" }}
+        >
           CAMPEÓN
         </div>
         <div className="rank-num" style={{ fontSize: 36, marginTop: 4 }}>
           01
         </div>
-        <div className="name">{first.name}</div>
+        <div className="name">{first.player_name}</div>
         <div className="score" style={{ fontSize: 20 }}>
           {fmt(first.score)}
         </div>
-        <div className="date">{first.date}</div>
+        <div className="date">{fmtDate(first.created_at)}</div>
       </div>
       <div className="podium-slot bronze">
         <div className="rank-num">03</div>
-        <div className="name">{third.name}</div>
-        <div className="score">{fmt(third.score)}</div>
-        <div className="date">{third.date}</div>
+        <div className="name">{third?.player_name ?? "—"}</div>
+        <div className="score">{third ? fmt(third.score) : "—"}</div>
+        <div className="date">{third ? fmtDate(third.created_at) : ""}</div>
       </div>
     </div>
   );
 }
 
-export function HallOfFame() {
-  const { user } = useSession();
-  const [tab, setTab] = useState(GAMES[0].id);
+export function HallOfFame({ games }: { games: GameRow[] }) {
+  const [tab, setTab] = useState(games[0]?.id ?? "");
+  const [loaded, setLoaded] = useState<{
+    tab: string;
+    rows: ScoreRow[];
+  } | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  const rows = useMemo(() => seededScores(tab.length * 23 + 7, 12), [tab]);
-  const game = GAMES.find((g) => g.id === tab) ?? GAMES[0];
-  const youRank = 8 + (tab.length % 4);
-  const youScore = rows[5].score - 2400;
+  useEffect(() => {
+    if (!tab) return;
+    let cancelled = false;
+    createClient()
+      .from("scores")
+      .select("*")
+      .eq("game_id", tab)
+      .order("score", { ascending: false })
+      .limit(TOP)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setFailed(!!error);
+        setLoaded({ tab, rows: error ? [] : data });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  const loading = !!tab && loaded?.tab !== tab;
+  const rows = loaded?.tab === tab ? loaded.rows : [];
 
   return (
     <div className="av-hall fade-in">
@@ -61,7 +92,7 @@ export function HallOfFame() {
       </div>
 
       <div className="hall-tabs">
-        {GAMES.map((g) => (
+        {games.map((g) => (
           <button
             key={g.id}
             type="button"
@@ -74,45 +105,63 @@ export function HallOfFame() {
         ))}
       </div>
 
-      <Podium rows={rows} />
-
-      <div className="hall-table">
-        <div className="th">
-          <div>RANGO</div>
-          <div>JUGADOR</div>
-          <div>PUNTUACIÓN</div>
-          <div>FECHA</div>
+      {loading ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: 60,
+            color: "var(--ink-faint)",
+          }}
+        >
+          CARGANDO…
         </div>
-        {rows.map((r, i) => (
-          <div
-            key={r.name + i}
-            className={"tr" + (i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : "")}
-            style={{ animationDelay: `${i * 50}ms` }}
-          >
-            <div className="rk">#{String(r.rank).padStart(2, "0")}</div>
-            <div className="pl">{r.name}</div>
-            <div className="sc">{fmt(r.score)}</div>
-            <div className="dt">{r.date}</div>
-          </div>
-        ))}
-        {user && (
-          <>
-            <div className="tr you-label">▸ TU MEJOR MARCA EN {game.title}</div>
-            <div className="tr you" style={{ animationDelay: `${rows.length * 50 + 50}ms` }}>
-              <div className="rk" style={{ color: "var(--yellow)" }}>
-                #{String(youRank).padStart(2, "0")}
-              </div>
-              <div className="pl" style={{ color: "var(--yellow)" }}>
-                {user.name}
-              </div>
-              <div className="sc" style={{ color: "var(--yellow)", textShadow: "0 0 6px rgba(245,255,0,0.5)" }}>
-                {fmt(youScore)}
-              </div>
-              <div className="dt">11/05/2026</div>
+      ) : rows.length === 0 ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: 60,
+            color: "var(--ink-faint)",
+          }}
+        >
+          {failed
+            ? "No se pudo cargar el ranking. Intenta de nuevo."
+            : "Sé el primero en entrar al salón de la fama"}
+        </div>
+      ) : (
+        <>
+          <Podium rows={rows} />
+
+          <div className="hall-table">
+            <div className="th">
+              <div>RANGO</div>
+              <div>JUGADOR</div>
+              <div>PUNTUACIÓN</div>
+              <div>FECHA</div>
             </div>
-          </>
-        )}
-      </div>
+            {rows.map((r, i) => (
+              <div
+                key={r.id}
+                className={
+                  "tr" +
+                  (i === 0
+                    ? " top1"
+                    : i === 1
+                      ? " top2"
+                      : i === 2
+                        ? " top3"
+                        : "")
+                }
+                style={{ animationDelay: `${i * 50}ms` }}
+              >
+                <div className="rk">#{String(i + 1).padStart(2, "0")}</div>
+                <div className="pl">{r.player_name}</div>
+                <div className="sc">{fmt(r.score)}</div>
+                <div className="dt">{fmtDate(r.created_at)}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
         <Link href={ROUTES.library} className="btn lg">

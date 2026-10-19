@@ -42,7 +42,11 @@ export function parseUser(raw: string | null): User | null {
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && typeof (parsed as User).name === "string") {
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as User).name === "string"
+    ) {
       return { name: (parsed as User).name };
     }
   } catch {
@@ -62,9 +66,44 @@ export function writeUser(user: User | null): void {
   notify();
 }
 
+const PLAYER_NAME_KEY = "av_player_name";
+
+// Nombre del leaderboard: independiente del nick de sesión (`av_user`).
+let memoryPlayerName: string | null = null;
+const playerNameListeners = new Set<() => void>();
+
+export function subscribePlayerName(listener: () => void): () => void {
+  playerNameListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    playerNameListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+export function getPlayerNameSnapshot(): string | null {
+  try {
+    return localStorage.getItem(PLAYER_NAME_KEY);
+  } catch {
+    return memoryPlayerName;
+  }
+}
+
+export function writePlayerName(name: string): void {
+  memoryPlayerName = name;
+  try {
+    localStorage.setItem(PLAYER_NAME_KEY, name);
+  } catch {
+    // Sin persistencia disponible: el nombre vive solo en memoria.
+  }
+  playerNameListeners.forEach((l) => l());
+}
+
 export function readScores(): SavedScore[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(SCORES_KEY) || "[]");
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(SCORES_KEY) || "[]",
+    );
     return Array.isArray(parsed) ? (parsed as SavedScore[]) : [];
   } catch {
     return [];

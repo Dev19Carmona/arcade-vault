@@ -1,20 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AsteroidsCanvas } from "@/components/games/asteroids-canvas";
 import { useSession } from "@/components/session-provider";
 import type { AsteroidsSnapshot } from "@/lib/games/asteroids/types";
 import { ROUTES } from "@/lib/routes";
+import {
+  getPlayerNameSnapshot,
+  subscribePlayerName,
+  writePlayerName,
+} from "@/lib/session";
+import { createClient } from "@/lib/supabase/client";
 
 const LIVES = 3;
 const POINTS_PER_LEVEL = 2500;
 
 // Juegos con motor real; el resto sigue con la simulación.
-const ASTEROIDS_ID = "rocas";
+const ASTEROIDS_ID = "asteroids";
 
-export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: string }) {
-  const { user, saveScore } = useSession();
+export function GamePlayer({
+  gameId,
+  gameTitle,
+}: {
+  gameId: string;
+  gameTitle: string;
+}) {
+  const { user } = useSession();
   const isAsteroids = gameId === ASTEROIDS_ID;
   const [simScore, setSimScore] = useState(0);
   const [snapshot, setSnapshot] = useState<AsteroidsSnapshot | null>(null);
@@ -23,17 +35,30 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
   const [over, setOver] = useState(false);
   const [typedName, setTypedName] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  // El servidor no tiene localStorage: el snapshot de servidor es null para no desajustar la hidratación.
+  const storedName = useSyncExternalStore(
+    subscribePlayerName,
+    getPlayerNameSnapshot,
+    () => null,
+  );
 
-  // El nombre sale de la sesión salvo que el jugador lo edite en el modal.
-  const name = typedName ?? user?.name ?? "INVITADO";
+  // Prioridad: lo que el jugador edite en el modal, luego el último nombre guardado, luego la sesión.
+  const name = typedName ?? storedName ?? user?.name ?? "INVITADO";
   const score = isAsteroids ? (snapshot?.score ?? 0) : simScore;
   const lives = isAsteroids ? (snapshot?.lives ?? LIVES) : LIVES;
-  const level = isAsteroids ? (snapshot?.level ?? 1) : 1 + Math.floor(score / POINTS_PER_LEVEL);
+  const level = isAsteroids
+    ? (snapshot?.level ?? 1)
+    : 1 + Math.floor(score / POINTS_PER_LEVEL);
 
   // Simulación: no hay juego real, el puntaje sube solo mientras no haya pausa ni fin.
   useEffect(() => {
     if (isAsteroids || over || paused) return;
-    const t = setInterval(() => setSimScore((s) => s + Math.floor(10 + Math.random() * 90)), 220);
+    const t = setInterval(
+      () => setSimScore((s) => s + Math.floor(10 + Math.random() * 90)),
+      220,
+    );
     return () => clearInterval(t);
   }, [isAsteroids, over, paused]);
 
@@ -43,10 +68,29 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
     setPaused(false);
     setOver(false);
     setSaved(false);
+    setSaveError(false);
   };
 
-  const save = () => {
-    saveScore({ game: gameId, score, name });
+  const save = async () => {
+    const playerName = name.trim();
+    if (saving || saved || !playerName) return;
+    setSaving(true);
+    setSaveError(false);
+
+    const { error } = await createClient().from("scores").insert({
+      game_id: gameId,
+      player_name: playerName,
+      score,
+      user_id: null,
+    });
+
+    setSaving(false);
+    if (error) {
+      setSaveError(true);
+      return;
+    }
+    writePlayerName(playerName);
+    setTypedName(null);
     setSaved(true);
   };
 
@@ -74,10 +118,18 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
           </div>
         </div>
         <div className="hud-actions">
-          <button type="button" className="btn yellow" onClick={() => setPaused((p) => !p)}>
+          <button
+            type="button"
+            className="btn yellow"
+            onClick={() => setPaused((p) => !p)}
+          >
             {paused ? "REANUDAR" : "PAUSA"}
           </button>
-          <button type="button" className="btn magenta" onClick={() => setOver(true)}>
+          <button
+            type="button"
+            className="btn magenta"
+            onClick={() => setOver(true)}
+          >
             FIN
           </button>
           <Link href={`/juego/${gameId}`} className="btn ghost">
@@ -106,14 +158,22 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
               </div>
             )}
             {paused && (
-              <div className="crt-content" style={{ background: "rgba(0,0,0,0.6)", zIndex: 5 }}>
+              <div
+                className="crt-content"
+                style={{ background: "rgba(0,0,0,0.6)", zIndex: 5 }}
+              >
                 <div>
                   <div className="pixel neon-yellow" style={{ fontSize: 22 }}>
                     EN PAUSA
                   </div>
                   <div
                     className="mono"
-                    style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 10, letterSpacing: "0.16em" }}
+                    style={{
+                      fontSize: 11,
+                      color: "var(--ink-dim)",
+                      marginTop: 10,
+                      letterSpacing: "0.16em",
+                    }}
                   >
                     PULSA REANUDAR PARA CONTINUAR
                   </div>
@@ -131,7 +191,12 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
 
       {over && (
         <div className="modal-bd">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Fin del juego">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Fin del juego"
+          >
             <h2>FIN DEL JUEGO</h2>
             <div className="final-label">PUNTUACIÓN FINAL</div>
             <div className="final">{score.toLocaleString("es-ES")}</div>
@@ -139,16 +204,31 @@ export function GamePlayer({ gameId, gameTitle }: { gameId: string; gameTitle: s
               <div className="input-row">
                 <input
                   value={name}
-                  onChange={(e) => setTypedName(e.target.value.toUpperCase().slice(0, 10))}
+                  onChange={(e) =>
+                    setTypedName(e.target.value.toUpperCase().slice(0, 10))
+                  }
                   placeholder="TUS INICIALES"
                   aria-label="Tus iniciales"
                 />
-                <button type="button" className="btn yellow" onClick={save}>
-                  GUARDAR PUNTUACIÓN
+                <button
+                  type="button"
+                  className="btn yellow"
+                  onClick={save}
+                  disabled={saving || !name.trim()}
+                >
+                  {saving ? "GUARDANDO…" : "GUARDAR PUNTUACIÓN"}
                 </button>
               </div>
             ) : (
               <div className="toast-saved">▸ PUNTUACIÓN GUARDADA_</div>
+            )}
+            {saveError && !saved && (
+              <div
+                role="alert"
+                style={{ color: "var(--magenta)", fontSize: 12, marginTop: 8 }}
+              >
+                No se pudo guardar la puntuación. Intenta de nuevo.
+              </div>
             )}
             <div className="actions">
               <button type="button" className="btn" onClick={restart}>

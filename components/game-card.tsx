@@ -4,14 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
 import type { MouseEvent } from "react";
-import type { Game } from "@/lib/games";
+import type { GameRow } from "@/lib/supabase/types";
 
-const BUTTON_COLOR: Partial<Record<Game["color"], string>> = {
+const BUTTON_COLOR: Partial<Record<GameRow["color"], string>> = {
   magenta: " magenta",
   yellow: " yellow",
 };
 
-export function GameCard({ game }: { game: Game }) {
+export function GameCard({ game, best }: { game: GameRow; best: number }) {
   const router = useRouter();
   const tiltRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +49,7 @@ export function GameCard({ game }: { game: Game }) {
         <div className="row">
           <div className="score-badge">
             <span>MEJOR PUNTUACIÓN</span>
-            <b>{game.best.toLocaleString("es-ES")}</b>
+            <b>{best > 0 ? best.toLocaleString("es-ES") : "—"}</b>
           </div>
           <Link
             href={href}

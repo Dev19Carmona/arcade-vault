@@ -1,0 +1,56 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e2]:
+    - navigation [ref=f3e3]:
+      - link "ARCADE VAULT" [ref=f3e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=f3e7]:
+        - link "Inicio" [ref=f3e8] [cursor=pointer]:
+          - /url: /
+        - link "Biblioteca" [ref=f3e9] [cursor=pointer]:
+          - /url: /games
+        - link "Salón de la Fama" [ref=f3e10] [cursor=pointer]:
+          - /url: /salon
+      - generic [ref=f3e11]: CRÉDITOS · 03
+    - complementary [aria-hidden] [ref=f3e14]:
+      - generic [ref=f3e15]: MENÚ
+      - link [ref=f3e16] [cursor=pointer]:
+        - /url: /
+        - text: Inicio
+      - link [ref=f3e17] [cursor=pointer]:
+        - /url: /games
+        - text: Biblioteca
+      - link [ref=f3e18] [cursor=pointer]:
+        - /url: /salon
+        - text: Salón de la Fama
+      - link [ref=f3e19] [cursor=pointer]:
+        - /url: /acceso
+        - text: Iniciar Sesión
+      - generic [ref=f3e21]: CRÉDITOS · 03
+    - main [ref=f3e22]:
+      - generic [ref=f3e23]:
+        - generic [ref=f3e24]:
+          - generic [ref=f3e25]:
+            - generic [ref=f3e26]:
+              - generic [ref=f3e27]: Jugador
+              - generic [ref=f3e28]: INVITADO
+            - generic [ref=f3e29]:
+              - generic [ref=f3e30]: Puntuación
+              - generic [ref=f3e31]: "0"
+            - generic [ref=f3e32]:
+              - generic [ref=f3e33]: Vidas
+              - generic [ref=f3e34]: ♥ ♥ ♥
+            - generic [ref=f3e35]:
+              - generic [ref=f3e36]: Nivel
+              - generic [ref=f3e37]: "01"
+          - generic [ref=f3e38]:
+            - button "PAUSA" [ref=f3e39] [cursor=pointer]
+            - button "FIN" [ref=f3e40] [cursor=pointer]
+            - link "SALIR" [ref=f3e41] [cursor=pointer]:
+              - /url: /juego/asteroids
+        - generic [ref=f3e43]:
+          - generic "Asteroids" [ref=f3e45]
+          - generic [ref=f3e46]:
+            - generic [ref=f3e47]: SEÑAL OK
+            - generic [ref=f3e48]: ASTEROIDS · CRT-83 · 60 HZ
+            - generic [ref=f3e49]: CARGA · 1MB
+  - button "Open Next.js Dev Tools" [ref=f3e55] [cursor=pointer]
