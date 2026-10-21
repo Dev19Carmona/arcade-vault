@@ -11,6 +11,10 @@ export const SEATS = 4;
 export const HUMAN_SEAT = 0;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 9;
+
+// Códigos de sala: sin I, O, 0 ni 1 para no confundirlos al dictarlos.
+export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const ROOM_CODE_LENGTH = 5;
 export const LIVES = 3;
 export const HAND_SIZE = 5;
 
