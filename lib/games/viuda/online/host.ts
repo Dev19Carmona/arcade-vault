@@ -19,6 +19,7 @@ import {
   handChannelName,
   isClientMessage,
   roomChannelName,
+  toPublicEvents,
   type JoinRejection,
   type OnlineAction,
   type PrivateHand,
@@ -173,6 +174,10 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         : advanceDeadline === null
           ? null
           : Math.max(0, Math.ceil((advanceDeadline - Date.now()) / 1000)),
+      events: toPublicEvents(
+        g.lastEvents,
+        g.seats.map((seat) => seat.id),
+      ),
     };
   }
 

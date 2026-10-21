@@ -17,6 +17,9 @@ export interface ViudaEngine {
   draw(ctx: CanvasRenderingContext2D): void;
   press(code: string): void; // acción de un solo frame: KeyboardEvent.code
   setPointer(x: number, y: number): void; // coordenadas LÓGICAS, no de pantalla
+  pointerDown(x: number, y: number): void; // pulsar: puede empezar un arrastre de carta
+  pointerUp(x: number, y: number): void; // soltar: termina el arrastre o cuenta como clic
+  pointerCancel(): void; // el gesto se interrumpió: se descarta sin clic
   click(): void;
   reset(): void; // nueva partida
   getSnapshot(): ViudaSnapshot;
@@ -41,6 +44,22 @@ export interface HandValue {
   // Rangos que desempatan, de más a menos importante (los palos no desempatan).
   tiebreak: number[];
 }
+
+// Lo que acaba de ocurrir en la mesa; solo informa a quien anima, no interviene en las reglas.
+// `n` crece de uno en uno en toda la partida; `seat` es el índice de asiento.
+export type GameEvent =
+  | { n: number; kind: "deal" }
+  | { n: number; kind: "pass"; seat: number }
+  | { n: number; kind: "call"; seat: number }
+  | { n: number; kind: "swap5"; seat: number }
+  | {
+      n: number;
+      kind: "swap1";
+      seat: number;
+      handIndex: number;
+      widowIndex: number;
+    }
+  | { n: number; kind: "showdown" };
 
 export interface Rect {
   x: number;

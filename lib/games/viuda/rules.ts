@@ -6,7 +6,7 @@ import {
   MIN_PLAYERS,
 } from "./constants";
 import type { OnlineAction } from "./online/protocol";
-import type { Card } from "./types";
+import type { Card, GameEvent } from "./types";
 import {
   compareDrawCards,
   compareHands,
@@ -45,6 +45,10 @@ export interface RulesState {
   finalTurnsLeft: number; // turnos que faltan tras un "llamo" para volver a quien llamó
   eliminations: string[][]; // ids por orden de eliminación; los del mismo duelo van juntos
   endWhenEliminated: string | null; // la partida termina si este jugador cae (VS CPU)
+  // Informativo (para animar): eventos de la última transición, en orden (una acción y,
+  // si cierra la vuelta, el duelo). Vacío si no hubo ninguno. `eventSeq` es el último `n`.
+  lastEvents: GameEvent[];
+  eventSeq: number;
 }
 
 export interface RulesOptions {
@@ -67,13 +71,26 @@ function fail(state: RulesState, error: string): RulesResult {
   return { state, error };
 }
 
+// Un clon abre una transición nueva, así que parte sin eventos.
 function cloneState(state: RulesState): RulesState {
   return {
     ...state,
     seats: state.seats.map((seat) => ({ ...seat, hand: [...seat.hand] })),
     widow: [...state.widow],
     eliminations: state.eliminations.map((group) => [...group]),
+    lastEvents: [],
   };
+}
+
+type NewEvent = GameEvent extends infer E
+  ? E extends GameEvent
+    ? Omit<E, "n">
+    : never
+  : never;
+
+function record(draft: RulesState, event: NewEvent): void {
+  draft.eventSeq++;
+  draft.lastEvents.push({ ...event, n: draft.eventSeq } as GameEvent);
 }
 
 function aliveSeats(state: RulesState): number[] {
@@ -142,6 +159,7 @@ function startRound(draft: RulesState, first: number, rng: Rng): void {
   draft.starter = first;
   draft.current = first;
   draft.phase = "turn";
+  record(draft, { kind: "deal" });
 }
 
 function startShowdown(draft: RulesState): void {
@@ -175,6 +193,7 @@ function startShowdown(draft: RulesState): void {
   }
   draft.nextStarter = first;
   draft.phase = "showdown";
+  record(draft, { kind: "showdown" });
 }
 
 function resolveShowdown(draft: RulesState, rng: Rng): void {
@@ -254,6 +273,8 @@ export function createGame(
     finalTurnsLeft: 0,
     eliminations: [],
     endWhenEliminated: options.endWhenEliminated ?? null,
+    lastEvents: [],
+    eventSeq: 0,
   };
 
   // Sorteo inicial: una carta a cada jugador; la más alta empieza.
@@ -293,6 +314,7 @@ export function applyAction(
   switch (action.type) {
     case "pass":
       seat.caption = "PASO";
+      record(draft, { kind: "pass", seat: index });
       endTurn(draft);
       break;
     case "call":
@@ -300,11 +322,13 @@ export function applyAction(
       draft.caller = index;
       draft.finalTurnsLeft = aliveSeats(draft).length - 1;
       draft.current = nextAlive(draft, index);
+      record(draft, { kind: "call", seat: index });
       break;
     case "swap5":
       [seat.hand, draft.widow] = [draft.widow, seat.hand];
       draft.widowOpen = true;
       seat.caption = "CAMBIÓ 5";
+      record(draft, { kind: "swap5", seat: index });
       endTurn(draft);
       break;
     case "swap1":
@@ -313,6 +337,12 @@ export function applyAction(
         seat.hand[action.handIndex],
       ];
       seat.caption = "CAMBIÓ 1";
+      record(draft, {
+        kind: "swap1",
+        seat: index,
+        handIndex: action.handIndex,
+        widowIndex: action.widowIndex,
+      });
       endTurn(draft);
       break;
   }

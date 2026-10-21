@@ -19,12 +19,14 @@ import {
   SUIT_SYMBOLS,
   W,
 } from "./constants";
+import type { Pose } from "./fx/timeline";
 import type { Card, Rect } from "./types";
 
 export interface CardStyle {
   selected?: boolean; // levantada y con borde
   highlight?: string; // color del borde (p. ej. la mano ganadora)
   dim?: boolean; // atenuada
+  hidden?: boolean; // no se dibuja: su carta está en vuelo
 }
 
 export interface SeatView {
@@ -36,6 +38,7 @@ export interface SeatView {
   eliminated: boolean;
   loser?: boolean; // pierde vida en el duelo
   caption?: string; // última jugada o resultado del duelo
+  hiddenSlots?: ReadonlySet<number>; // cartas que no se dibujan quietas: están en vuelo
 }
 
 export interface ButtonStyle {
@@ -182,9 +185,48 @@ export function drawCardRow(
   styles: readonly CardStyle[] = [],
 ): void {
   cards.forEach((card, i) => {
+    if (styles[i]?.hidden) return;
     if (card) drawCard(ctx, card, rects[i], styles[i]);
     else drawCardBack(ctx, rects[i], styles[i]);
   });
+}
+
+// Pose de una carta quieta en `r`: centrada en el rectángulo, sin giro y a escala 1.
+export function poseOf(r: Rect, flip = 1): Pose {
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2, rot: 0, scale: 1, flip };
+}
+
+// Dibuja una carta con pose (posición del centro, giro, escala y volteo) para las
+// animaciones. `size` es el tamaño sin escalar; `card` null se queda siempre de dorso.
+export function drawCardPosed(
+  ctx: CanvasRenderingContext2D,
+  card: Card | null,
+  size: { w: number; h: number },
+  pose: Pose,
+  style: CardStyle = {},
+): void {
+  // El volteo estrecha la carta hasta una línea a mitad de giro y la abre por el otro lado.
+  const squeeze = card === null ? 1 : Math.abs(pose.flip * 2 - 1);
+  const rect = { x: -size.w / 2, y: -size.h / 2, w: size.w, h: size.h };
+
+  ctx.save();
+  ctx.translate(pose.x, pose.y);
+  ctx.rotate(pose.rot);
+  ctx.scale(pose.scale * Math.max(squeeze, 0.02), pose.scale);
+  if (card && pose.flip >= 0.5) drawCard(ctx, card, rect, style);
+  else drawCardBack(ctx, rect, style);
+  ctx.restore();
+}
+
+// Centro del corazón `index` de una fila de vidas centrada en `cx`.
+export function lifeHeartPos(
+  index: number,
+  cx: number,
+  y: number,
+  size = 14,
+): { x: number; y: number } {
+  const gap = size + 4;
+  return { x: cx - ((LIVES - 1) * gap) / 2 + index * gap, y };
 }
 
 export function drawLives(
@@ -198,11 +240,10 @@ export function drawLives(
   ctx.font = `${size}px ${FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const gap = size + 4;
-  const startX = cx - ((LIVES - 1) * gap) / 2;
   for (let i = 0; i < LIVES; i++) {
     ctx.fillStyle = i < lives ? COLOR_MAGENTA : "rgba(255,255,255,0.18)";
-    ctx.fillText("♥", startX + i * gap, y);
+    const p = lifeHeartPos(i, cx, y, size);
+    ctx.fillText("♥", p.x, p.y);
   }
   ctx.restore();
 }
@@ -226,6 +267,13 @@ export function drawText(
   ctx.textBaseline = "middle";
   ctx.fillText(text, x, y);
   ctx.restore();
+}
+
+// Cartas de un panel de CPU: dorsos solapados, o abiertas y separadas en el duelo.
+export function seatCardRects(r: Rect, count: number, faceUp: boolean): Rect[] {
+  const w = faceUp ? 26 : 22;
+  const h = faceUp ? 38 : 32;
+  return cardRowRects(count, r.x + r.w / 2, r.y + 50, w, h, faceUp ? 3 : -8);
 }
 
 // Panel de una CPU: nombre, vidas, cartas ocultas (o abiertas en el duelo) y última jugada.
@@ -255,13 +303,17 @@ export function drawSeat(
   });
   drawLives(ctx, seat.lives, cx, r.y + 34, 14);
 
-  const w = seat.hand ? 26 : 22;
-  const h = seat.hand ? 38 : 32;
   const count = seat.hand ? seat.hand.length : seat.cardCount;
   if (count > 0) {
-    const rects = cardRowRects(count, cx, r.y + 50, w, h, seat.hand ? 3 : -8);
-    if (seat.hand) drawCardRow(ctx, seat.hand, rects);
-    else rects.forEach((rect) => drawCardBack(ctx, rect));
+    const rects = seatCardRects(r, count, !!seat.hand);
+    const styles = rects.map((_, i) => ({
+      hidden: seat.hiddenSlots?.has(i),
+    }));
+    if (seat.hand) drawCardRow(ctx, seat.hand, rects, styles);
+    else
+      rects.forEach((rect, i) => {
+        if (!styles[i].hidden) drawCardBack(ctx, rect);
+      });
   }
 
   const caption = seat.eliminated ? "ELIMINADO" : (seat.caption ?? "");

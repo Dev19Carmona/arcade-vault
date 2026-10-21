@@ -1,4 +1,4 @@
-import type { Card } from "../types";
+import type { Card, GameEvent } from "../types";
 
 // Acciones que un jugador puede pedir en su turno. Las usa el núcleo de reglas
 // y, en el modo en línea, viajan del cliente al anfitrión.
@@ -26,6 +26,45 @@ export interface PublicSeat {
   hand: Card[] | null; // solo se rellena en el duelo
 }
 
+// Lo que acaba de ocurrir, para que cada cliente lo anime. Es el `GameEvent` de las reglas
+// con `playerId` en lugar del índice de asiento. No lleva cartas: `swap1` solo dice qué
+// huecos se intercambiaron.
+export type PublicEvent =
+  | { n: number; kind: "deal" }
+  | { n: number; kind: "pass" | "call" | "swap5"; playerId: string }
+  | {
+      n: number;
+      kind: "swap1";
+      playerId: string;
+      handIndex: number;
+      widowIndex: number;
+    }
+  | { n: number; kind: "showdown" };
+
+// De los eventos de las reglas (por asiento) a los públicos (por jugador).
+export function toPublicEvents(
+  events: readonly GameEvent[],
+  seatIds: readonly string[],
+): PublicEvent[] {
+  return events.map((event): PublicEvent => {
+    switch (event.kind) {
+      case "deal":
+      case "showdown":
+        return event;
+      case "swap1":
+        return {
+          n: event.n,
+          kind: "swap1",
+          playerId: seatIds[event.seat],
+          handIndex: event.handIndex,
+          widowIndex: event.widowIndex,
+        };
+      default:
+        return { n: event.n, kind: event.kind, playerId: seatIds[event.seat] };
+    }
+  });
+}
+
 // Host → todos (canal público)
 export interface PublicTable {
   seq: number; // creciente; el cliente descarta mensajes viejos
@@ -42,6 +81,10 @@ export interface PublicTable {
   // Lo mismo agrupado: los de un mismo grupo empatan (eliminados en el mismo duelo).
   rankingGroups?: string[][] | null;
   autoAdvanceIn: number | null; // segundos, sorteo y duelo
+  // Eventos de la última transición, en orden. Opcional: un cliente que no lo conozca lo
+  // ignora y uno nuevo sin él (p. ej. tras `rejoin`) no anima. Se repite en cada mesa hasta
+  // la siguiente transición, así que el cliente se queda con los que no vio (`n` nuevo).
+  events?: PublicEvent[];
 }
 
 // Host → un jugador (canal de mano)
@@ -77,8 +120,35 @@ export function isPublicTable(value: unknown): value is PublicTable {
     typeof t.seq === "number" &&
     typeof t.phase === "string" &&
     typeof t.hostId === "string" &&
-    Array.isArray(t.seats)
+    Array.isArray(t.seats) &&
+    (t.events === undefined || Array.isArray(t.events))
   );
+}
+
+export function isPublicEvent(value: unknown): value is PublicEvent {
+  if (!value || typeof value !== "object") return false;
+  const e = value as {
+    n?: unknown;
+    kind?: unknown;
+    playerId?: unknown;
+    handIndex?: unknown;
+    widowIndex?: unknown;
+  };
+  if (typeof e.n !== "number") return false;
+  if (e.kind === "deal" || e.kind === "showdown") return true;
+  if (typeof e.playerId !== "string") return false;
+  if (e.kind === "pass" || e.kind === "call" || e.kind === "swap5") return true;
+  return (
+    e.kind === "swap1" &&
+    Number.isInteger(e.handIndex) &&
+    Number.isInteger(e.widowIndex)
+  );
+}
+
+// Los eventos de una mesa que este cliente sabe animar. Los de un tipo desconocido (de
+// un anfitrión más nuevo) se descartan en vez de invalidar la mesa entera.
+export function publicEvents(table: PublicTable): PublicEvent[] {
+  return (table.events ?? []).filter(isPublicEvent);
 }
 
 export function isRejectMessage(value: unknown): value is RejectMessage {

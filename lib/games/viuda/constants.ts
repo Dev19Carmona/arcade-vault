@@ -98,3 +98,27 @@ export const BUTTON_W = 150;
 export const BUTTON_H = 38;
 export const BUTTON_GAP = 16;
 export const BUTTON_Y = 550;
+
+// Animaciones (SPEC 10), en milisegundos. Cortas a propósito: bloquean el turno, así que no deben aburrir.
+export const FX_MAX_MS = 1000; // tope duro de bloqueo por evento
+export const FX_PASS_MS = 450;
+export const FX_CALL_MS = 800;
+export const FX_SWAP1_MS = 700;
+export const FX_SWAP5_MS = 900;
+export const FX_DEAL_MS = 900;
+export const FX_SHOWDOWN_MS = 1000;
+export const FX_HIGHLIGHT_MS = 150; // resalte de origen y destino antes del vuelo
+export const FX_FLIGHT_MS = 450;
+export const FX_FLIP_MS = 400;
+export const FX_TAG_MS = 300; // entrada de la marca persistente del llamador
+export const FX_DEAL_FLIGHT_MS = 300; // vuelo de una carta repartida
+export const FX_REVEAL_MS = 600; // volteo de las manos rivales en el duelo
+export const FX_HEART_MS = 400; // corazón que se rompe, tras el volteo
+export const FX_STAGGER_MS = 60; // desfase entre cartas de un mismo evento
+export const FX_CATCHUP_SPEED = 2; // con más de un evento pendiente se acelera
+
+// PASO discreto; LLAMO es la jugada fuerte; el resalte amarillo es el mismo de la selección.
+export const FX_COLOR_PASS = COLOR_DIM;
+export const FX_COLOR_CALL = COLOR_MAGENTA;
+export const FX_COLOR_SWAP = COLOR_CYAN;
+export const FX_COLOR_HIGHLIGHT = COLOR_YELLOW;

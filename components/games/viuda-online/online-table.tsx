@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { H, W } from "@/lib/games/viuda/constants";
+import { useEffect, useRef, useState } from "react";
+import { H, HAND_SIZE, MAX_DT, W } from "@/lib/games/viuda/constants";
 import { pointInRect } from "@/lib/games/viuda/entities";
+import {
+  createHandDrag,
+  moveCard,
+  visualIndices,
+  visualToRules,
+} from "@/lib/games/viuda/hand-order";
 import type {
   OnlineAction,
   PrivateHand,
   PublicTable,
 } from "@/lib/games/viuda/online/protocol";
+import { createTableFx } from "@/lib/games/viuda/online/table-fx";
 import {
   drawOnlineTable,
   isMyTurn,
@@ -68,6 +75,11 @@ export function OnlineTable(props: Props) {
     widow: null,
   });
   const pointer = useRef({ x: -1, y: -1 });
+  // Animaciones de la mesa: cada cliente anima por su cuenta los eventos que llegan.
+  const [fx] = useState(createTableFx);
+  // Arrastre de las cartas de mi mano: solo reordena mi vista, no es una acción de juego.
+  const [drag] = useState(() => createHandDrag(HAND_SIZE));
+  const lastHandSeq = useRef(-1);
   // Cuenta atrás local: el anfitrión envía los segundos solo al cambiar la mesa.
   const deadline = useRef<number | null>(null);
   const lastSeq = useRef(-1);
@@ -78,6 +90,12 @@ export function OnlineTable(props: Props) {
   // Las refs siempre apuntan a lo último sin recrear el bucle.
   useEffect(() => {
     live.current = props;
+    fx.ingest(table, props.hand, playerId, performance.now());
+    // Si mi mano cambia (reparto o cambio de cartas), un arrastre en curso ya no vale.
+    if ((props.hand?.seq ?? -1) !== lastHandSeq.current) {
+      lastHandSeq.current = props.hand?.seq ?? -1;
+      drag.cancel();
+    }
     if (table.phase === "draw" || table.phase === "turn") {
       livesBeforeDuel.current = new Map(
         table.seats.map((s) => [s.playerId, s.lives]),
@@ -137,6 +155,10 @@ export function OnlineTable(props: Props) {
         pointer: pointer.current,
         secondsLeft: left,
         notice: p.notice,
+        fx,
+        locked: fx.isLocked(),
+        order: fx.order(),
+        drag,
       };
     };
 
@@ -167,17 +189,28 @@ export function OnlineTable(props: Props) {
     };
 
     // Pantalla -> coordenadas lógicas del canvas, que se escala por CSS.
-    const toLogical = (e: PointerEvent | MouseEvent) => {
+    const toLogical = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       pointer.current = {
         x: ((e.clientX - rect.left) * W) / rect.width,
         y: ((e.clientY - rect.top) * H) / rect.height,
       };
+      return pointer.current;
     };
-    const onPointerMove = (e: PointerEvent) => toLogical(e);
-    const onPointerLeave = () => (pointer.current = { x: -1, y: -1 });
-    const onClick = (e: MouseEvent) => {
-      toLogical(e);
+
+    // Se puede reordenar la mano siempre que haya cartas, también fuera de turno.
+    const canDrag = (view: OnlineView) => {
+      const me = view.table.seats.find((s) => s.playerId === view.playerId);
+      return (
+        !!me?.alive &&
+        me.connected &&
+        !view.table.paused &&
+        (view.table.phase === "turn" || view.table.phase === "showdown") &&
+        view.hand?.hand.length === HAND_SIZE
+      );
+    };
+
+    const handleClick = () => {
       const { x, y } = pointer.current;
       const view = currentView();
       const button = onlineButtons(view).find((b) => pointInRect(x, y, b.rect));
@@ -185,12 +218,20 @@ export function OnlineTable(props: Props) {
         if (!button.disabled) activate(button.id, button.target);
         return;
       }
+      // Un clic durante una animación la termina en vez de actuar.
+      if (fx.isLocked()) {
+        fx.skip();
+        return;
+      }
       // Con la viuda abierta se eligen una carta propia y una de la viuda.
       if (isMyTurn(view) && view.table.widowOpen) {
-        const count = view.hand?.hand.length ?? 0;
-        ownCardRects(count).forEach((r, i) => {
+        // La selección guarda el índice de las reglas: acompaña a la carta aunque se mueva.
+        const cards = view.hand?.hand ?? [];
+        const indices = visualIndices(view.order, cards);
+        ownCardRects(cards.length).forEach((r, v) => {
           if (pointInRect(x, y, r)) {
-            sel.current.own = sel.current.own === i ? null : i;
+            const k = indices[v];
+            sel.current.own = sel.current.own === k ? null : k;
           }
         });
         widowCardRects().forEach((r, i) => {
@@ -201,10 +242,54 @@ export function OnlineTable(props: Props) {
       }
     };
 
+    const onPointerMove = (e: PointerEvent) => {
+      const { x, y } = toLogical(e);
+      drag.move(x, y);
+    };
+    // Al salir del canvas el arrastre, si lo hay, conserva su última posición.
+    const onPointerLeave = () => (pointer.current = { x: -1, y: -1 });
+    // Pulsar y soltar sustituyen al clic: así un arrastre de carta no cuenta como clic.
+    const onPointerDown = (e: PointerEvent) => {
+      if (!e.isPrimary || e.button !== 0) return;
+      const { x, y } = toLogical(e);
+      canvas.setPointerCapture(e.pointerId);
+      if (canDrag(currentView())) {
+        // Una carta que está en vuelo no se puede coger hasta que llegue.
+        drag.down(
+          x,
+          y,
+          ownCardRects(HAND_SIZE),
+          (slot) => !fx.tl.hidden.has(`own:${slot}`) && !fx.waiting(),
+        );
+      }
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!e.isPrimary) return;
+      if (canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      const { x, y } = toLogical(e);
+      drag.move(x, y);
+      const release = drag.up();
+      if (release?.kind === "drop") {
+        if (release.from !== release.to) {
+          fx.setOrder(moveCard(fx.order(), release.from, release.to));
+        }
+        return;
+      }
+      handleClick();
+    };
+    const onPointerCancel = () => drag.cancel();
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (!GAME_KEYS.has(e.code) || isTextTarget(e.target)) return;
       e.preventDefault();
       if (e.repeat) return;
+      // Una tecla durante una animación la termina en vez de actuar.
+      if (fx.isLocked()) {
+        fx.skip();
+        return;
+      }
       const view = currentView();
       const { table: t, isHost } = view;
       if (CONTINUE_KEYS.includes(e.code)) {
@@ -225,7 +310,11 @@ export function OnlineTable(props: Props) {
       else if (t.widowOpen) {
         const own = OWN_KEYS.indexOf(e.code);
         const widow = WIDOW_KEYS.indexOf(e.code);
-        if (own >= 0) sel.current.own = sel.current.own === own ? null : own;
+        if (own >= 0) {
+          // Las teclas 1–5 son posiciones visuales, de izquierda a derecha.
+          const k = visualToRules(fx.order(), view.hand?.hand ?? [], own);
+          sel.current.own = sel.current.own === k ? null : k;
+        }
         if (widow >= 0) {
           sel.current.widow = sel.current.widow === widow ? null : widow;
         }
@@ -238,12 +327,21 @@ export function OnlineTable(props: Props) {
 
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerleave", onPointerLeave);
-    canvas.addEventListener("click", onClick);
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
     let raf = 0;
+    let lastTime = performance.now();
     const loop = () => {
+      // El tiempo de las animaciones avanza con dt (acotado), como en VS CPU.
+      const now = performance.now();
+      const dt = Math.min((now - lastTime) / 1000, MAX_DT);
+      fx.update(dt, now);
+      drag.update(dt);
+      lastTime = now;
       drawOnlineTable(ctx, currentView());
       raf = requestAnimationFrame(loop);
     };
@@ -253,17 +351,19 @@ export function OnlineTable(props: Props) {
       cancelAnimationFrame(raf);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerleave", onPointerLeave);
-      canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerCancel);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, []);
+  }, [fx, drag]);
 
   return (
     <div className="vd-screen">
       <canvas
         ref={canvasRef}
-        className="game-canvas"
+        className="game-canvas game-canvas--drag"
         width={W}
         height={H}
         aria-label="Mesa de Viuda en línea"
