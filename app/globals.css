@@ -1482,3 +1482,23 @@ a { color: inherit; text-decoration: none; }
 .vd-slot.empty { background: transparent; border-style: dashed; }
 .vd-slot.empty .n { color: rgba(255, 255, 255, 0.35); }
 .vd-slot.empty .who { color: rgba(255, 255, 255, 0.4); }
+
+/* En pantallas estrechas el lobby y la sala de espera (DOM, no canvas) usan todo el alto del
+   escenario en vez del 4:3 del monitor, para verse completos sin scroll interno. */
+@media (max-width: 720px) {
+  .crt-screen:has(.vd-lobby) {
+    aspect-ratio: auto;
+    height: calc(100cqh - 2 * var(--pad) - var(--bar) - var(--ring));
+  }
+}
+
+/* Pantalla del CRT muy estrecha (móvil): márgenes más cortos y etiquetas de asiento bajo el alias. */
+@container vd (max-width: 400px) {
+  .vd-lobby { gap: 0.8em; padding: 3cqh 3.5cqw; }
+  .vd-panel { padding: 0.8em; gap: 0.6em; }
+  .vd-slots { gap: 0.35em; }
+  .vd-slot { flex-wrap: wrap; row-gap: 0.15em; gap: 0.5em; padding: 0.35em 0.6em; }
+  .vd-slot .who { flex: 1 0 calc(100% - 2em); }
+  .vd-slot .tag { margin-left: 1.5em; }
+  .vd-tile { font-size: 1.25em; }
+}

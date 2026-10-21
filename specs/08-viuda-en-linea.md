@@ -1,6 +1,6 @@
 # SPEC 08 — Viuda en línea (salas de 2 a 9 jugadores)
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 03 (clientes Supabase), SPEC 05 (patrón de tablas con RLS abierta), SPEC 07 (juego Viuda local, motor y registro)
 > **Fecha:** 2026-10-21
 > **Objetivo:** Añadir a Viuda un modo en línea para 2 a 9 jugadores humanos, con salas que se crean o se unen por código de 5 caracteres (o desde una lista de salas abiertas) y una partida sincronizada por Supabase Realtime con el navegador del anfitrión como autoridad.
