@@ -1,13 +1,18 @@
 import { createClient } from "@/lib/supabase/client";
 import {
   EVENT_CLIENT,
+  EVENT_HAND,
   EVENT_REJECT,
   EVENT_TABLE,
+  handChannelName,
+  isPrivateHand,
   isPublicTable,
   isRejectMessage,
   roomChannelName,
   type ClientMessage,
   type JoinRejection,
+  type OnlineAction,
+  type PrivateHand,
   type PublicTable,
 } from "./protocol";
 
@@ -20,27 +25,33 @@ export interface ClientSessionOptions {
   playerId: string;
   name: string;
   onTable: (table: PublicTable) => void;
+  onHand: (hand: PrivateHand) => void;
   onRejected: (reason: JoinRejection) => void;
   onError: (message: string) => void;
 }
 
 export interface ClientSession {
-  leave(): Promise<void>; // SALIR: avisa al anfitrión y suelta el canal
-  dispose(): Promise<void>; // suelta el canal
+  act(action: OnlineAction): void; // pide una acción; el anfitrión decide si vale
+  leave(): Promise<void>; // SALIR: avisa al anfitrión y suelta los canales
+  dispose(): Promise<void>; // suelta los canales
 }
 
 // Sesión de un jugador que no es anfitrión: presence para que el anfitrión lo vea,
-// `join` para pedir sitio y la mesa que difunde el anfitrión como única verdad.
+// `join` para pedir sitio, la mesa pública del anfitrión como única verdad y un
+// canal propio por el que le llega solo su mano.
 export function createClientSession(
   options: ClientSessionOptions,
 ): ClientSession {
-  const { code, playerId, name, onTable, onRejected, onError } = options;
+  const { code, playerId, name, onTable, onHand, onRejected, onError } =
+    options;
   const supabase = createClient();
   const channel = supabase.channel(roomChannelName(code), {
     config: { presence: { key: playerId }, broadcast: { self: false } },
   });
+  const handChannel = supabase.channel(handChannelName(code, playerId));
 
   let lastSeq = -1;
+  let lastHandSeq = -1;
   let joined = false;
   let attempts = 0;
   let retryTimer: ReturnType<typeof setInterval> | null = null;
@@ -90,6 +101,15 @@ export function createClientSession(
     onRejected(payload.reason);
   });
 
+  handChannel.on("broadcast", { event: EVENT_HAND }, ({ payload }) => {
+    if (disposed || !isPrivateHand(payload) || payload.seq <= lastHandSeq) {
+      return;
+    }
+    lastHandSeq = payload.seq;
+    onHand(payload);
+  });
+  handChannel.subscribe();
+
   channel.subscribe(async (status) => {
     if (disposed) return;
     if (status === "SUBSCRIBED") {
@@ -116,10 +136,16 @@ export function createClientSession(
     if (disposed) return;
     disposed = true;
     stopRetry();
-    await supabase.removeChannel(channel);
+    await Promise.all([
+      supabase.removeChannel(channel),
+      supabase.removeChannel(handChannel),
+    ]);
   }
 
   return {
+    act(action) {
+      if (!disposed) send({ kind: "action", playerId, action });
+    },
     async leave() {
       if (!disposed) send({ kind: "leave", playerId });
       await dispose();

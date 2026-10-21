@@ -4,6 +4,7 @@ import { useState } from "react";
 import { clearSession } from "@/lib/games/viuda/online/identity";
 import type { EnteredRoom } from "./lobby";
 import { useRoomSession, type RoomFailure } from "./use-room-session";
+import { DebugTable } from "./debug-table";
 import { WaitingRoom } from "./waiting-room";
 
 function failureText(failure: RoomFailure): string {
@@ -13,7 +14,7 @@ function failureText(failure: RoomFailure): string {
     : "La partida ya empezó y no admite más jugadores.";
 }
 
-// Una sala en línea: espera, partida y fin. Por ahora solo la sala de espera.
+// Una sala en línea: espera, partida y fin. Por ahora, espera y una vista provisional de la partida.
 export function OnlineRoom({
   room,
   onLeave,
@@ -21,7 +22,8 @@ export function OnlineRoom({
   room: EnteredRoom;
   onLeave: () => void;
 }) {
-  const { table, failure, start, leave } = useRoomSession(room);
+  const { table, hand, failure, start, act, continueGame, leave } =
+    useRoomSession(room);
   const [starting, setStarting] = useState(false);
 
   function exit() {
@@ -80,17 +82,16 @@ export function OnlineRoom({
     );
   }
 
-  // La mesa de juego llega en los pasos siguientes.
+  // Vista provisional hasta la mesa en canvas (Paso 8).
   return (
-    <div className="vd-screen">
-      <div className="vd-pick">
-        <p role="status" className="vd-prompt">
-          La partida ha comenzado con {table.seats.length} jugadores.
-        </p>
-        <button type="button" className="btn ghost" onClick={exit}>
-          SALIR
-        </button>
-      </div>
-    </div>
+    <DebugTable
+      table={table}
+      hand={hand}
+      playerId={room.playerId}
+      isHost={room.isHost}
+      onAction={act}
+      onContinue={continueGame}
+      onLeave={exit}
+    />
   );
 }

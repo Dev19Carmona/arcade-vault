@@ -89,14 +89,39 @@ export function isRejectMessage(value: unknown): value is RejectMessage {
 
 export function isClientMessage(value: unknown): value is ClientMessage {
   if (!value || typeof value !== "object") return false;
-  const m = value as { kind?: unknown; playerId?: unknown };
+  const m = value as { kind?: unknown; playerId?: unknown; action?: unknown };
+  if (
+    typeof m.playerId !== "string" ||
+    m.playerId.length === 0 ||
+    m.playerId.length > 64
+  ) {
+    return false;
+  }
+  if (m.kind === "action") return isOnlineAction(m.action);
+  return m.kind === "join" || m.kind === "rejoin" || m.kind === "leave";
+}
+
+export function isOnlineAction(value: unknown): value is OnlineAction {
+  if (!value || typeof value !== "object") return false;
+  const a = value as {
+    type?: unknown;
+    handIndex?: unknown;
+    widowIndex?: unknown;
+  };
+  if (a.type === "pass" || a.type === "call" || a.type === "swap5") return true;
   return (
-    typeof m.playerId === "string" &&
-    m.playerId.length > 0 &&
-    m.playerId.length <= 64 &&
-    (m.kind === "join" ||
-      m.kind === "rejoin" ||
-      m.kind === "action" ||
-      m.kind === "leave")
+    a.type === "swap1" &&
+    Number.isInteger(a.handIndex) &&
+    Number.isInteger(a.widowIndex)
+  );
+}
+
+export function isPrivateHand(value: unknown): value is PrivateHand {
+  if (!value || typeof value !== "object") return false;
+  const h = value as Partial<PrivateHand>;
+  return (
+    typeof h.seq === "number" &&
+    Array.isArray(h.hand) &&
+    (h.taken === null || Array.isArray(h.taken))
   );
 }

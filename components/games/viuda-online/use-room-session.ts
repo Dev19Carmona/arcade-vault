@@ -11,6 +11,8 @@ import {
 } from "@/lib/games/viuda/online/host";
 import type {
   JoinRejection,
+  OnlineAction,
+  PrivateHand,
   PublicTable,
 } from "@/lib/games/viuda/online/protocol";
 import type { EnteredRoom } from "@/components/games/viuda-online/lobby";
@@ -21,9 +23,10 @@ export type RoomFailure =
 
 type Session = HostSession | ClientSession;
 
-// Conecta al jugador con su sala y devuelve la mesa que difunde el anfitrión.
+// Conecta al jugador con su sala y devuelve la mesa pública y su mano privada.
 export function useRoomSession(room: EnteredRoom) {
   const [table, setTable] = useState<PublicTable | null>(null);
+  const [hand, setHand] = useState<PrivateHand | null>(null);
   const [failure, setFailure] = useState<RoomFailure | null>(null);
   const sessionRef = useRef<Session | null>(null);
 
@@ -38,16 +41,15 @@ export function useRoomSession(room: EnteredRoom) {
         code: room.code,
         playerId: room.playerId,
         name: room.name,
+        onTable: setTable,
+        onHand: setHand,
+        onError: (message: string) => setFailure({ kind: "error", message }),
       };
-      const onError = (message: string) =>
-        setFailure({ kind: "error", message });
       session = room.isHost
-        ? createHostSession({ ...base, onTable: setTable, onError })
+        ? createHostSession(base)
         : createClientSession({
             ...base,
-            onTable: setTable,
             onRejected: (reason) => setFailure({ kind: "rejected", reason }),
-            onError,
           });
       sessionRef.current = session;
     }, 0);
@@ -65,6 +67,17 @@ export function useRoomSession(room: EnteredRoom) {
     return session && "start" in session ? session.start() : false;
   }, []);
 
+  // Pasar, llamar o cambiar cartas; el anfitrión valida y puede rechazarlo.
+  const act = useCallback((action: OnlineAction) => {
+    sessionRef.current?.act(action);
+  }, []);
+
+  // CONTINUAR en el sorteo y el duelo (solo el anfitrión).
+  const continueGame = useCallback(() => {
+    const session = sessionRef.current;
+    if (session && "continueGame" in session) session.continueGame();
+  }, []);
+
   // SALIR: el anfitrión cierra la sala; un jugador avisa y se va.
   const leave = useCallback(() => {
     const session = sessionRef.current;
@@ -73,5 +86,5 @@ export function useRoomSession(room: EnteredRoom) {
     void ("close" in session ? session.close() : session.leave());
   }, []);
 
-  return { table, failure, start, leave };
+  return { table, hand, failure, start, act, continueGame, leave };
 }
