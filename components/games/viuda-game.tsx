@@ -1,10 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ViudaCanvas } from "@/components/games/viuda-canvas";
 import { OnlineRoom } from "@/components/games/viuda-online/online-room";
 import { Lobby, type EnteredRoom } from "@/components/games/viuda-online/lobby";
-import type { GameCanvasProps } from "@/lib/games/types";
+import type { GameCanvasProps, GameSnapshot } from "@/lib/games/types";
+import {
+  clearSession,
+  loadSession,
+  readAlias,
+} from "@/lib/games/viuda/online/identity";
+import { findRoom, setStatus } from "@/lib/supabase/rooms";
 
 type View =
   | { name: "select" }
@@ -15,6 +21,64 @@ type View =
 // Entrada de Viuda en el registro: elige entre VS CPU (el canvas de siempre) y el modo en línea.
 export function ViudaGame(props: GameCanvasProps) {
   const [view, setView] = useState<View>({ name: "select" });
+  const { onChange } = props;
+
+  // Fuera de VS CPU la plataforma no debe mostrar PAUSA, FIN ni puntuación. Se avisa solo
+  // cuando el snapshot cambia: la mesa en línea se actualiza varias veces por segundo.
+  const lastReported = useRef("");
+  const report = useCallback(
+    (snapshot: GameSnapshot) => {
+      const key = JSON.stringify(snapshot);
+      if (key === lastReported.current) return;
+      lastReported.current = key;
+      onChange(snapshot);
+    },
+    [onChange],
+  );
+  useEffect(() => {
+    if (view.name === "select" || view.name === "lobby") {
+      report({ score: 0, online: true });
+    }
+  }, [view.name, report]);
+
+  // Si la pestaña se recargó en plena partida, se vuelve al asiento reservado.
+  useEffect(() => {
+    const session = loadSession();
+    if (!session) return;
+    let cancelled = false;
+    findRoom(session.code)
+      .then((room) => {
+        if (cancelled) return;
+        if (room?.status === "playing" && room.host_id !== session.playerId) {
+          setView((current) =>
+            current.name === "select"
+              ? {
+                  name: "room",
+                  room: {
+                    code: session.code,
+                    playerId: session.playerId,
+                    name: readAlias() || "JUGADOR",
+                    isHost: false,
+                    hostId: room.host_id,
+                    rejoin: true,
+                  },
+                }
+              : current,
+          );
+          return;
+        }
+        // Sala en espera, cerrada o propia: no hay asiento al que volver. Si era la
+        // del anfitrión que recargó, la sala se cierra (no hay migración de anfitrión).
+        if (room?.host_id === session.playerId && room.status !== "closed") {
+          void setStatus(session.code, "closed").catch(() => {});
+        }
+        clearSession();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (view.name === "cpu") return <ViudaCanvas {...props} />;
 
@@ -31,6 +95,7 @@ export function ViudaGame(props: GameCanvasProps) {
     return (
       <OnlineRoom
         room={view.room}
+        onSnapshot={report}
         onLeave={() => setView({ name: "lobby" })}
       />
     );

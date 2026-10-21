@@ -39,6 +39,8 @@ export interface PublicTable {
   widow: (Card | null)[]; // null = boca abajo
   widowOpen: boolean;
   ranking: string[] | null; // playerIds del primero al último, solo en `final`
+  // Lo mismo agrupado: los de un mismo grupo empatan (eliminados en el mismo duelo).
+  rankingGroups?: string[][] | null;
   autoAdvanceIn: number | null; // segundos, sorteo y duelo
 }
 
@@ -50,7 +52,8 @@ export interface PrivateHand {
 }
 
 // Host → todos: el anfitrión no admite a este jugador.
-export type JoinRejection = "full" | "started";
+// `running` no es definitivo: la partida sigue en marcha y se puede volver cuando el anfitrión la pause.
+export type JoinRejection = "full" | "started" | "running" | "removed";
 export interface RejectMessage {
   playerId: string;
   reason: JoinRejection;
@@ -83,20 +86,48 @@ export function isRejectMessage(value: unknown): value is RejectMessage {
   const m = value as Partial<RejectMessage>;
   return (
     typeof m.playerId === "string" &&
-    (m.reason === "full" || m.reason === "started")
+    (m.reason === "full" ||
+      m.reason === "started" ||
+      m.reason === "running" ||
+      m.reason === "removed")
   );
 }
 
 export function isClientMessage(value: unknown): value is ClientMessage {
   if (!value || typeof value !== "object") return false;
-  const m = value as { kind?: unknown; playerId?: unknown };
+  const m = value as { kind?: unknown; playerId?: unknown; action?: unknown };
+  if (
+    typeof m.playerId !== "string" ||
+    m.playerId.length === 0 ||
+    m.playerId.length > 64
+  ) {
+    return false;
+  }
+  if (m.kind === "action") return isOnlineAction(m.action);
+  return m.kind === "join" || m.kind === "rejoin" || m.kind === "leave";
+}
+
+export function isOnlineAction(value: unknown): value is OnlineAction {
+  if (!value || typeof value !== "object") return false;
+  const a = value as {
+    type?: unknown;
+    handIndex?: unknown;
+    widowIndex?: unknown;
+  };
+  if (a.type === "pass" || a.type === "call" || a.type === "swap5") return true;
   return (
-    typeof m.playerId === "string" &&
-    m.playerId.length > 0 &&
-    m.playerId.length <= 64 &&
-    (m.kind === "join" ||
-      m.kind === "rejoin" ||
-      m.kind === "action" ||
-      m.kind === "leave")
+    a.type === "swap1" &&
+    Number.isInteger(a.handIndex) &&
+    Number.isInteger(a.widowIndex)
+  );
+}
+
+export function isPrivateHand(value: unknown): value is PrivateHand {
+  if (!value || typeof value !== "object") return false;
+  const h = value as Partial<PrivateHand>;
+  return (
+    typeof h.seq === "number" &&
+    Array.isArray(h.hand) &&
+    (h.taken === null || Array.isArray(h.taken))
   );
 }

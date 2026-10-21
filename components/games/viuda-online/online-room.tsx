@@ -1,28 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { GameSnapshot } from "@/lib/games/types";
 import { clearSession } from "@/lib/games/viuda/online/identity";
+import { onlineSnapshot } from "@/lib/games/viuda/online/snapshot";
 import type { EnteredRoom } from "./lobby";
+import { OnlineTable } from "./online-table";
 import { useRoomSession, type RoomFailure } from "./use-room-session";
 import { WaitingRoom } from "./waiting-room";
 
 function failureText(failure: RoomFailure): string {
   if (failure.kind === "error") return failure.message;
-  return failure.reason === "full"
-    ? "La sala se llenó antes de que entraras."
-    : "La partida ya empezó y no admite más jugadores.";
+  if (failure.kind === "closed") return "El anfitrión se desconectó.";
+  if (failure.reason === "full")
+    return "La sala se llenó antes de que entraras.";
+  if (failure.reason === "removed") {
+    return "Te quitaron de la partida por estar desconectado.";
+  }
+  return "La partida ya empezó y no admite más jugadores.";
 }
 
-// Una sala en línea: espera, partida y fin. Por ahora solo la sala de espera.
+// Una sala en línea: espera, partida y fin.
 export function OnlineRoom({
   room,
   onLeave,
+  onSnapshot,
 }: {
   room: EnteredRoom;
   onLeave: () => void;
+  onSnapshot: (snapshot: GameSnapshot) => void; // HUD de la plataforma
 }) {
-  const { table, failure, start, leave } = useRoomSession(room);
+  const {
+    table,
+    hand,
+    failure,
+    notice,
+    start,
+    act,
+    continueGame,
+    pause,
+    resume,
+    eliminatePlayer,
+    rematch,
+    leave,
+  } = useRoomSession(room);
   const [starting, setStarting] = useState(false);
+
+  // El HUD muestra RONDA, JUGADORES y mis vidas; sin puntuación ni pausa.
+  useEffect(() => {
+    onSnapshot(onlineSnapshot(table, room.playerId));
+  }, [table, room.playerId, onSnapshot]);
 
   function exit() {
     leave();
@@ -32,8 +59,9 @@ export function OnlineRoom({
 
   async function handleStart() {
     setStarting(true);
-    const started = await start();
-    if (!started) setStarting(false);
+    await start();
+    // Si salió bien, la pantalla pasa a la partida; tras una revancha vuelve a estar libre.
+    setStarting(false);
   }
 
   if (failure) {
@@ -56,10 +84,12 @@ export function OnlineRoom({
       <div className="vd-screen">
         <div className="vd-pick">
           <p role="status" className="vd-prompt">
-            Conectando con la sala {room.code}…
+            {notice === "running"
+              ? "La partida sigue en curso; espera a que el anfitrión la pause."
+              : `Conectando con la sala ${room.code}…`}
           </p>
           <button type="button" className="btn ghost" onClick={exit}>
-            CANCELAR
+            {notice === "running" ? "SALIR" : "CANCELAR"}
           </button>
         </div>
       </div>
@@ -80,17 +110,20 @@ export function OnlineRoom({
     );
   }
 
-  // La mesa de juego llega en los pasos siguientes.
   return (
-    <div className="vd-screen">
-      <div className="vd-pick">
-        <p role="status" className="vd-prompt">
-          La partida ha comenzado con {table.seats.length} jugadores.
-        </p>
-        <button type="button" className="btn ghost" onClick={exit}>
-          SALIR
-        </button>
-      </div>
-    </div>
+    <OnlineTable
+      table={table}
+      hand={hand}
+      playerId={room.playerId}
+      isHost={room.isHost}
+      notice={notice}
+      onAction={act}
+      onContinue={continueGame}
+      onPause={pause}
+      onResume={resume}
+      onEliminate={eliminatePlayer}
+      onRematch={rematch}
+      onLeave={exit}
+    />
   );
 }

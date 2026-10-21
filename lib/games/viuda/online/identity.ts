@@ -34,7 +34,9 @@ export function newPlayerId(): string {
 
 export function loadSession(): ViudaSession | null {
   try {
-    const parsed: unknown = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null");
+    const parsed: unknown = JSON.parse(
+      sessionStorage.getItem(SESSION_KEY) ?? "null",
+    );
     if (
       parsed &&
       typeof parsed === "object" &&

@@ -393,3 +393,11 @@ export function eliminate(state: RulesState, playerId: string): RulesResult {
   }
   return ok(draft);
 }
+
+// Clasificación: primero quien sigue vivo, luego los eliminados del más reciente al más
+// antiguo. Los eliminados en el mismo duelo van en el mismo grupo (empatan).
+export function getRanking(state: RulesState): string[][] {
+  const alive = state.seats.filter((seat) => seat.alive).map((seat) => seat.id);
+  const eliminated = [...state.eliminations].reverse();
+  return alive.length > 0 ? [alive, ...eliminated] : eliminated;
+}

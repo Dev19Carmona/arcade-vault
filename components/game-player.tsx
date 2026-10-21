@@ -51,6 +51,8 @@ export function GamePlayer({
     ? snapshot?.level
     : 1 + Math.floor(score / POINTS_PER_LEVEL);
   const stats = Canvas ? (snapshot?.stats ?? []) : [];
+  // En línea no hay puntuación ni pausa: la partida es de varios jugadores y no se detiene.
+  const online = Canvas ? (snapshot?.online ?? false) : false;
 
   // Simulación: no hay juego real, el puntaje sube solo mientras no haya pausa ni fin.
   useEffect(() => {
@@ -74,7 +76,7 @@ export function GamePlayer({
 
   const save = async () => {
     const playerName = name.trim();
-    if (saving || saved || !playerName) return;
+    if (online || saving || saved || !playerName) return;
     setSaving(true);
     setSaveError(false);
 
@@ -105,14 +107,18 @@ export function GamePlayer({
               {name}
             </div>
           </div>
-          <div className="hud-stat">
-            <div className="l">Puntuación</div>
-            <div className="v">{score.toLocaleString("es-ES")}</div>
-          </div>
+          {!online && (
+            <div className="hud-stat">
+              <div className="l">Puntuación</div>
+              <div className="v">{score.toLocaleString("es-ES")}</div>
+            </div>
+          )}
           {lives !== undefined && (
             <div className="hud-stat lives">
               <div className="l">Vidas</div>
-              <div className="v">{"♥ ".repeat(lives).trim()}</div>
+              <div className="v">
+                {lives > 0 ? "♥ ".repeat(lives).trim() : "—"}
+              </div>
             </div>
           )}
           {level !== undefined && (
@@ -129,20 +135,24 @@ export function GamePlayer({
           ))}
         </div>
         <div className="hud-actions">
-          <button
-            type="button"
-            className="btn yellow"
-            onClick={() => setPaused((p) => !p)}
-          >
-            {paused ? "REANUDAR" : "PAUSA"}
-          </button>
-          <button
-            type="button"
-            className="btn magenta"
-            onClick={() => setOver(true)}
-          >
-            FIN
-          </button>
+          {!online && (
+            <>
+              <button
+                type="button"
+                className="btn yellow"
+                onClick={() => setPaused((p) => !p)}
+              >
+                {paused ? "REANUDAR" : "PAUSA"}
+              </button>
+              <button
+                type="button"
+                className="btn magenta"
+                onClick={() => setOver(true)}
+              >
+                FIN
+              </button>
+            </>
+          )}
           <Link href={`/juego/${gameId}`} className="btn ghost">
             SALIR
           </Link>
@@ -200,7 +210,7 @@ export function GamePlayer({
         </div>
       </div>
 
-      {over && (
+      {over && !online && (
         <div className="modal-bd">
           <div
             className="modal"
