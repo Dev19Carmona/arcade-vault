@@ -52,6 +52,7 @@ export interface HostSession {
   pause(): void; // PAUSAR: ninguna acción de juego se acepta y los desconectados pueden volver
   resume(): void; // REANUDAR: los que siguen desconectados quedan eliminados
   eliminatePlayer(playerId: string): void; // ELIMINAR a un jugador desconectado
+  rematch(): void; // REVANCHA: vuelve a la sala de espera con los jugadores presentes
   close(): Promise<void>; // SALIR: cierra la sala para todos
   dispose(): Promise<void>; // suelta canales y temporizadores sin tocar el estado de la sala
 }
@@ -128,6 +129,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         widow: [],
         widowOpen: false,
         ranking: null,
+        rankingGroups: null,
         autoAdvanceIn: null,
       };
     }
@@ -162,6 +164,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       widow: g.widow.map((card) => (g.widowOpen ? card : null)),
       widowOpen: g.widowOpen,
       ranking: g.phase === "final" ? getRanking(g).flat() : null,
+      rankingGroups: g.phase === "final" ? getRanking(g) : null,
       // En pausa la cuenta atrás queda congelada en lo que faltaba.
       autoAdvanceIn: paused
         ? pausedRemainingMs === null
@@ -413,6 +416,34 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     sendHands();
   }
 
+  // REVANCHA: nueva sala de espera con quienes siguen conectados. Se restauran las vidas
+  // al crear la partida siguiente; la sala vuelve a figurar como abierta.
+  function rematch() {
+    if (disposed || !game || game.phase !== "final") return;
+    players = players.filter(
+      (p) => p.playerId === playerId || connected.has(p.playerId),
+    );
+    game = null;
+    paused = false;
+    pausedRemainingMs = null;
+    pausedPhase = null;
+    advanceDeadline = null;
+    if (advanceTimer) clearInterval(advanceTimer);
+    advanceTimer = null;
+    connected.clear();
+    removed.clear();
+    sentHands.clear();
+    pendingTaken.clear();
+    // Los canales de mano se vuelven a abrir al iniciar la siguiente partida.
+    const links = [...handLinks.values()];
+    handLinks.clear();
+    for (const link of links) void supabase.removeChannel(link.channel);
+    publish();
+    setStatus(code, "waiting").catch(() => {});
+    syncRoom();
+    if (!heartbeatTimer) heartbeatTimer = setInterval(syncRoom, HEARTBEAT_MS);
+  }
+
   function eliminatePlayer(id: string) {
     if (disposed || !game || id === playerId) return;
     const seat = game.seats.find((s) => s.id === id);
@@ -536,6 +567,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     pause,
     resume,
     eliminatePlayer,
+    rematch,
     async close() {
       try {
         await setStatus(code, "closed");

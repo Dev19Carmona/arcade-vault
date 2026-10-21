@@ -87,6 +87,7 @@ export function useRoomSession(room: EnteredRoom) {
   const continueGame = useCallback(() => host((s) => s.continueGame()), [host]);
   const pause = useCallback(() => host((s) => s.pause()), [host]);
   const resume = useCallback(() => host((s) => s.resume()), [host]);
+  const rematch = useCallback(() => host((s) => s.rematch()), [host]);
   const eliminatePlayer = useCallback(
     (id: string) => host((s) => s.eliminatePlayer(id)),
     [host],
@@ -111,6 +112,7 @@ export function useRoomSession(room: EnteredRoom) {
     pause,
     resume,
     eliminatePlayer,
+    rematch,
     leave,
   };
 }

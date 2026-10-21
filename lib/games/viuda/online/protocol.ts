@@ -39,6 +39,8 @@ export interface PublicTable {
   widow: (Card | null)[]; // null = boca abajo
   widowOpen: boolean;
   ranking: string[] | null; // playerIds del primero al último, solo en `final`
+  // Lo mismo agrupado: los de un mismo grupo empatan (eliminados en el mismo duelo).
+  rankingGroups?: string[][] | null;
   autoAdvanceIn: number | null; // segundos, sorteo y duelo
 }
 

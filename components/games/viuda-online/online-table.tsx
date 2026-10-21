@@ -53,6 +53,7 @@ interface Props {
   onPause: () => void;
   onResume: () => void;
   onEliminate: (playerId: string) => void;
+  onRematch: () => void;
   onLeave: () => void;
 }
 
@@ -148,6 +149,7 @@ export function OnlineTable(props: Props) {
       else if (id === "continue") p.onContinue();
       else if (id === "pause") p.onPause();
       else if (id === "resume") p.onResume();
+      else if (id === "rematch") p.onRematch();
       else if (id === "eliminate") {
         if (target) p.onEliminate(target);
       } else if (!mine) return;

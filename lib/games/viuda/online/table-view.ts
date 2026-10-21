@@ -61,6 +61,7 @@ export type OnlineButtonId =
   | "pause"
   | "resume"
   | "eliminate"
+  | "rematch"
   | "leave";
 
 export interface OnlineButton {
@@ -211,6 +212,15 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
     main.push({
       id: "continue",
       label: "CONTINUAR",
+      color: COLOR_YELLOW,
+      disabled: false,
+    });
+  }
+
+  if (view.isHost && table.phase === "final") {
+    main.push({
+      id: "rematch",
+      label: "REVANCHA",
       color: COLOR_YELLOW,
       disabled: false,
     });
@@ -463,21 +473,126 @@ function bannerFor(
     };
   }
 
-  if (table.phase === "final") {
-    const winnerId = table.ranking?.[0] ?? null;
-    const won = winnerId === playerId;
-    return {
-      lines: [
-        "FIN DE LA PARTIDA",
-        winnerId
-          ? `Gana ${won ? "TÚ" : nameOf(table, winnerId)}`
-          : "Sin ganador",
-      ],
-      color: won ? COLOR_GREEN : COLOR_YELLOW,
-    };
-  }
-
   return null;
+}
+
+function drawButtons(ctx: CanvasRenderingContext2D, view: OnlineView) {
+  for (const b of onlineButtons(view)) {
+    const hover = pointInRect(view.pointer.x, view.pointer.y, b.rect);
+    if (
+      b.id === "leave" ||
+      b.id === "pause" ||
+      b.id === "resume" ||
+      b.id === "eliminate"
+    ) {
+      drawSmallButton(ctx, b, hover);
+    } else {
+      drawButton(ctx, b.rect, b.label, {
+        color: b.color,
+        disabled: b.disabled,
+        hover,
+      });
+    }
+  }
+}
+
+// Clasificación con posiciones de competición: los empatados comparten número y el
+// siguiente se salta (1º, 2º, 2º, 4º).
+export function standings(
+  table: PublicTable,
+): { position: number; seat: PublicSeat }[] {
+  const groups = table.rankingGroups ?? (table.ranking ?? []).map((id) => [id]);
+  const rows: { position: number; seat: PublicSeat }[] = [];
+  let position = 1;
+  for (const group of groups) {
+    for (const id of group) {
+      const seat = seatOf(table, id);
+      if (seat) rows.push({ position, seat });
+    }
+    position += group.length;
+  }
+  return rows;
+}
+
+const ROW_H = 26;
+
+// Pantalla final: ganador y clasificación sobre el tapete.
+function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
+  const { table, playerId } = view;
+  const rows = standings(table);
+  const winners = rows.filter((r) => r.position === 1);
+  const iWon = winners.some((r) => r.seat.playerId === playerId);
+
+  drawText(ctx, "FIN DE LA PARTIDA", W / 2, 52, {
+    size: 24,
+    bold: true,
+    color: iWon ? COLOR_GREEN : COLOR_YELLOW,
+  });
+  const headline =
+    winners.length === 0
+      ? "Sin ganador"
+      : winners.length > 1
+        ? "Empate en el primer puesto"
+        : iWon
+          ? "¡Has ganado la Viuda!"
+          : `Gana ${winners[0].seat.name}`;
+  drawText(ctx, fitText(ctx, headline, W - 80, 16), W / 2, 84, {
+    size: 16,
+    color: COLOR_INK,
+  });
+
+  // Lista de posiciones.
+  const box: Rect = { x: 220, y: 112, w: 360, h: 20 + rows.length * ROW_H };
+  panel(ctx, box, "rgba(0,0,0,0.4)", "rgba(255,255,255,0.18)", 1);
+  rows.forEach(({ position, seat }, i) => {
+    const y = box.y + 10 + i * ROW_H + ROW_H / 2;
+    const mine = seat.playerId === playerId;
+    if (position === 1) {
+      panel(
+        ctx,
+        { x: box.x + 6, y: y - ROW_H / 2 + 1, w: box.w - 12, h: ROW_H - 2 },
+        "rgba(245,255,0,0.08)",
+        COLOR_YELLOW,
+        1,
+      );
+    }
+    drawText(ctx, `${position}º`, box.x + 22, y, {
+      size: 14,
+      bold: true,
+      align: "left",
+      color: position === 1 ? COLOR_YELLOW : COLOR_DIM,
+    });
+    drawText(ctx, fitText(ctx, seat.name, 210, 14, mine), box.x + 64, y, {
+      size: 14,
+      bold: mine,
+      align: "left",
+      color: mine ? COLOR_CYAN : COLOR_INK,
+    });
+    if (mine) {
+      drawText(ctx, "TÚ", box.x + box.w - 20, y, {
+        size: 11,
+        bold: true,
+        align: "right",
+        color: COLOR_CYAN,
+      });
+    }
+  });
+  drawText(
+    ctx,
+    "Orden de eliminación: quienes cayeron en el mismo duelo empatan.",
+    W / 2,
+    box.y + box.h + 22,
+    { size: 11, color: COLOR_DIM },
+  );
+  drawText(
+    ctx,
+    view.isHost
+      ? "REVANCHA vuelve a la sala de espera con los jugadores presentes."
+      : "Esperando a que el anfitrión proponga la revancha.",
+    W / 2,
+    BUTTON_Y - 24,
+    { size: 13, color: COLOR_CYAN },
+  );
 }
 
 export function drawOnlineTable(
@@ -496,6 +611,12 @@ export function drawOnlineTable(
   const rects = opponentRects(count);
 
   drawTable(ctx);
+
+  if (phase === "final") {
+    drawFinalScreen(ctx, view);
+    drawButtons(ctx, view);
+    return;
+  }
 
   // Rivales, en orden de turno a partir de mí.
   table.seats.forEach((seat, i) => {
@@ -529,7 +650,7 @@ export function drawOnlineTable(
   if (phase === "draw") {
     const card = me?.hand?.[0];
     if (card) drawCardRow(ctx, [card], ownCardRects(1));
-  } else if (me?.alive || phase === "final") {
+  } else if (me?.alive) {
     const cards: (Card | null)[] = hand
       ? hand.hand
       : Array.from({ length: me?.handCount ?? 0 }, () => null);
@@ -568,7 +689,7 @@ export function drawOnlineTable(
   });
 
   // Estado y mensajes.
-  const veiled = table.paused || (me && !me.connected && phase !== "final");
+  const veiled = table.paused || (me && !me.connected);
   if (phase === "turn" && !veiled) {
     drawText(
       ctx,
@@ -594,7 +715,7 @@ export function drawOnlineTable(
       ],
       COLOR_YELLOW,
     );
-  } else if (me && !me.connected && phase !== "final") {
+  } else if (me && !me.connected) {
     drawVeil(
       ctx,
       [
@@ -610,22 +731,5 @@ export function drawOnlineTable(
     );
   }
 
-  // Botones.
-  for (const b of onlineButtons(view)) {
-    const hover = pointInRect(view.pointer.x, view.pointer.y, b.rect);
-    if (
-      b.id === "leave" ||
-      b.id === "pause" ||
-      b.id === "resume" ||
-      b.id === "eliminate"
-    ) {
-      drawSmallButton(ctx, b, hover);
-    } else {
-      drawButton(ctx, b.rect, b.label, {
-        color: b.color,
-        disabled: b.disabled,
-        hover,
-      });
-    }
-  }
+  drawButtons(ctx, view);
 }

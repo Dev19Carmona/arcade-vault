@@ -37,6 +37,7 @@ export function OnlineRoom({
     pause,
     resume,
     eliminatePlayer,
+    rematch,
     leave,
   } = useRoomSession(room);
   const [starting, setStarting] = useState(false);
@@ -49,8 +50,9 @@ export function OnlineRoom({
 
   async function handleStart() {
     setStarting(true);
-    const started = await start();
-    if (!started) setStarting(false);
+    await start();
+    // Si salió bien, la pantalla pasa a la partida; tras una revancha vuelve a estar libre.
+    setStarting(false);
   }
 
   if (failure) {
@@ -111,6 +113,7 @@ export function OnlineRoom({
       onPause={pause}
       onResume={resume}
       onEliminate={eliminatePlayer}
+      onRematch={rematch}
       onLeave={exit}
     />
   );
