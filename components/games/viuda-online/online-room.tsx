@@ -4,7 +4,7 @@ import { useState } from "react";
 import { clearSession } from "@/lib/games/viuda/online/identity";
 import type { EnteredRoom } from "./lobby";
 import { useRoomSession, type RoomFailure } from "./use-room-session";
-import { DebugTable } from "./debug-table";
+import { OnlineTable } from "./online-table";
 import { WaitingRoom } from "./waiting-room";
 
 function failureText(failure: RoomFailure): string {
@@ -14,7 +14,7 @@ function failureText(failure: RoomFailure): string {
     : "La partida ya empezó y no admite más jugadores.";
 }
 
-// Una sala en línea: espera, partida y fin. Por ahora, espera y una vista provisional de la partida.
+// Una sala en línea: espera, partida y fin. Por ahora, espera y mesa de juego.
 export function OnlineRoom({
   room,
   onLeave,
@@ -82,9 +82,8 @@ export function OnlineRoom({
     );
   }
 
-  // Vista provisional hasta la mesa en canvas (Paso 8).
   return (
-    <DebugTable
+    <OnlineTable
       table={table}
       hand={hand}
       playerId={room.playerId}
