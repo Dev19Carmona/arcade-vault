@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { ViudaCanvas } from "@/components/games/viuda-canvas";
+import { OnlineRoom } from "@/components/games/viuda-online/online-room";
 import { Lobby, type EnteredRoom } from "@/components/games/viuda-online/lobby";
-import { clearSession } from "@/lib/games/viuda/online/identity";
-import { setStatus } from "@/lib/supabase/rooms";
 import type { GameCanvasProps } from "@/lib/games/types";
 
 type View =
@@ -29,25 +28,11 @@ export function ViudaGame(props: GameCanvasProps) {
   }
 
   if (view.name === "room") {
-    const { room } = view;
-    // La sala de espera real llega en el siguiente paso; aquí solo se confirma la entrada.
-    const leave = () => {
-      if (room.isHost) void setStatus(room.code, "closed").catch(() => {});
-      clearSession();
-      setView({ name: "lobby" });
-    };
     return (
-      <div className="vd-screen">
-        <div className="vd-pick">
-          <p className="vd-prompt">
-            {room.isHost ? "Sala creada" : "Has entrado en la sala"}
-          </p>
-          <p className="vd-title neon-yellow">{room.code}</p>
-          <button type="button" className="btn ghost" onClick={leave}>
-            SALIR
-          </button>
-        </div>
-      </div>
+      <OnlineRoom
+        room={view.room}
+        onLeave={() => setView({ name: "lobby" })}
+      />
     );
   }
 
