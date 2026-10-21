@@ -6,9 +6,11 @@ export const H = 600;
 
 export const MAX_DT = 0.05;
 
-// Hoy 4 asientos (tú + 3 CPU); el motor los recibe como parámetro para el modo en línea.
+// VS CPU usa 4 asientos (tú + 3 CPU); el motor los recibe como parámetro para el modo en línea.
 export const SEATS = 4;
 export const HUMAN_SEAT = 0;
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 9;
 export const LIVES = 3;
 export const HAND_SIZE = 5;
 
@@ -86,13 +88,7 @@ export const WIDOW_Y = 235;
 
 export const SEAT_W = 150;
 export const SEAT_H = 120;
-
-// Esquina superior izquierda del panel de cada CPU, por asiento (el 0 es el jugador).
-export const SEAT_POSITIONS: Record<number, { x: number; y: number }> = {
-  1: { x: 24, y: 215 },
-  2: { x: (W - SEAT_W) / 2, y: 28 },
-  3: { x: W - SEAT_W - 24, y: 215 },
-};
+export const SEAT_GAP = 16;
 
 export const BUTTON_W = 150;
 export const BUTTON_H = 38;
