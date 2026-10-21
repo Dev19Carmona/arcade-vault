@@ -3,6 +3,7 @@ import {
   CARD_GAP,
   CARD_H,
   CARD_W,
+  HAND_SIZE,
   COLOR_BLACK_SUIT,
   COLOR_CYAN,
   COLOR_DIM,
@@ -11,19 +12,16 @@ import {
   COLOR_MAGENTA,
   COLOR_YELLOW,
   FONT,
-  HAND_SIZE,
   HAND_Y,
   W,
   WIDOW_CARD_H,
-  WIDOW_CARD_W,
-  WIDOW_GAP,
   WIDOW_Y,
 } from "../constants";
 import {
   buttonRowRects,
-  cardRowRects,
   drawButton,
   drawCardBack,
+  drawCardPosed,
   drawCardRow,
   drawLives,
   drawTable,
@@ -31,10 +29,29 @@ import {
   pointInRect,
   type CardStyle,
 } from "../entities";
+import {
+  drawBadges,
+  drawEffects,
+  drawFlights,
+  drawLastLap,
+  drawTurnPulse,
+} from "../fx/draw";
+import { visualIndices, type HandDrag, type HandOrder } from "../hand-order";
 import type { Card, Rect } from "../types";
 import { cardLabel, compareDrawCards } from "../utils";
-import { opponentRects, relativeSeat } from "./layout";
+import {
+  badgeAnchor,
+  onlineSeatCardRects,
+  ownCardRects,
+  rivalPanel,
+  seatPanel,
+  widowCardRects,
+} from "./geometry";
 import type { PrivateHand, PublicSeat, PublicTable } from "./protocol";
+import type { TableFx } from "./table-fx";
+
+// La geometría vive en geometry.ts; se reexporta porque el componente la importa de aquí.
+export { ownCardRects, widowCardRects };
 
 // Dibujo y botones de la mesa en línea. TypeScript puro: recibe el contexto 2D por
 // parámetro y no toca window ni document, igual que el motor de VS CPU.
@@ -50,6 +67,10 @@ export interface OnlineView {
   pointer: { x: number; y: number }; // coordenadas lógicas
   secondsLeft: number | null; // cuenta atrás hasta que avanza solo el sorteo o el duelo
   notice: "running" | "reconnecting" | null; // aviso de mi conexión
+  fx: TableFx; // animaciones en curso
+  locked: boolean; // hay animación en curso o pendiente: mi turno y CONTINUAR esperan
+  order: HandOrder; // orden visual de mi mano (solo local)
+  drag: HandDrag; // arrastre de cartas en curso, si lo hay
 }
 
 export type OnlineButtonId =
@@ -80,23 +101,6 @@ const BANNER_Y = 360;
 const LEAVE_RECT: Rect = { x: W - 100, y: 4, w: 92, h: 22 };
 const PAUSE_RECT: Rect = { x: 8, y: 4, w: 92, h: 22 };
 
-// --- Geometría compartida con el clic ---
-
-export function ownCardRects(count = HAND_SIZE): Rect[] {
-  return cardRowRects(count, W / 2, HAND_Y, CARD_W, CARD_H, CARD_GAP);
-}
-
-export function widowCardRects(): Rect[] {
-  return cardRowRects(
-    HAND_SIZE,
-    W / 2,
-    WIDOW_Y,
-    WIDOW_CARD_W,
-    WIDOW_CARD_H,
-    WIDOW_GAP,
-  );
-}
-
 // --- Consultas sobre la mesa ---
 
 function seatOf(table: PublicTable, id: string | null): PublicSeat | undefined {
@@ -107,11 +111,13 @@ function nameOf(table: PublicTable, id: string | null): string {
   return seatOf(table, id)?.name ?? "?";
 }
 
+// `locked` (si se conoce) cuenta: durante una animación aún no se puede jugar.
 export function isMyTurn(
-  view: Pick<OnlineView, "table" | "playerId">,
+  view: Pick<OnlineView, "table" | "playerId"> & { locked?: boolean },
 ): boolean {
   return (
     view.table.phase === "turn" &&
+    !view.locked &&
     !view.table.paused &&
     view.table.turnPlayerId === view.playerId &&
     seatOf(view.table, view.playerId)?.connected !== false
@@ -128,7 +134,7 @@ function seatRect(
   const localIndex = table.seats.findIndex((s) => s.playerId === playerId);
   const index = table.seats.findIndex((s) => s.playerId === id);
   if (localIndex < 0 || index < 0 || index === localIndex) return null;
-  return opponentRects(count)[relativeSeat(index, localIndex, count) - 1];
+  return rivalPanel(count, localIndex, index);
 }
 
 // Gana el sorteo la carta más alta entre los jugadores vivos.
@@ -206,6 +212,7 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
     }
   } else if (
     view.isHost &&
+    !view.locked &&
     !table.paused &&
     (table.phase === "draw" || table.phase === "showdown")
   ) {
@@ -316,7 +323,15 @@ function drawOnlineSeat(
   ctx: CanvasRenderingContext2D,
   r: Rect,
   seat: PublicSeat,
-  state: { active: boolean; loser: boolean; showCards: boolean },
+  state: {
+    active: boolean;
+    loser: boolean;
+    showCards: boolean;
+    showFaces: boolean; // las manos abiertas se ven de cara (en el duelo, tras la animación)
+    showResult: boolean; // jugada o mano del duelo (en el duelo, tras el volteo)
+    lives: number; // vidas que se dibujan: la que se pierde en el duelo sigue hasta que se rompe
+    hiddenSlots: ReadonlySet<number>; // cartas en vuelo: no se dibujan quietas
+  },
 ) {
   const cx = r.x + r.w / 2;
   ctx.save();
@@ -338,27 +353,33 @@ function drawOnlineSeat(
     bold: true,
     color: state.active ? COLOR_YELLOW : COLOR_INK,
   });
-  drawLives(ctx, seat.lives, cx, r.y + 30, 13);
+  drawLives(ctx, state.lives, cx, r.y + 30, 13);
 
-  const faceUp = seat.hand !== null;
+  const faceUp = seat.hand !== null && state.showFaces;
   const count = faceUp
     ? seat.hand!.length
     : state.showCards
       ? seat.handCount
       : 0;
   if (count > 0) {
-    const w = faceUp ? 26 : 22;
-    const h = faceUp ? 38 : 32;
-    const rects = cardRowRects(count, cx, r.y + 44, w, h, faceUp ? 3 : -8);
-    if (faceUp) drawCardRow(ctx, seat.hand!, rects);
-    else rects.forEach((rect) => drawCardBack(ctx, rect));
+    const rects = onlineSeatCardRects(r, count, faceUp);
+    const styles = rects.map((_, i) => ({
+      hidden: state.hiddenSlots.has(i),
+    }));
+    if (faceUp) drawCardRow(ctx, seat.hand!, rects, styles);
+    else
+      rects.forEach((rect, i) => {
+        if (!styles[i].hidden) drawCardBack(ctx, rect);
+      });
   }
 
   const caption = !seat.alive
     ? "ELIMINADO"
     : !seat.connected
       ? "DESCONECTADO"
-      : (seat.lastAction ?? "");
+      : state.showResult
+        ? (seat.lastAction ?? "")
+        : "";
   if (caption) {
     drawText(ctx, fitText(ctx, caption, r.w - 12, 11), cx, r.y + r.h - 11, {
       size: 11,
@@ -599,16 +620,31 @@ export function drawOnlineTable(
   ctx: CanvasRenderingContext2D,
   view: OnlineView,
 ): void {
-  const { table, hand, playerId } = view;
+  const { table, hand, playerId, fx } = view;
+  const tl = fx.tl;
   const count = table.seats.length;
   const localIndex = Math.max(
     0,
     table.seats.findIndex((s) => s.playerId === playerId),
   );
   const me = table.seats[localIndex];
-  const myTurn = isMyTurn(view);
+  // Le toca a mi jugador según la mesa, aunque aún se esté animando la jugada anterior.
+  const myTurn = isMyTurn({ table, playerId });
   const phase = table.phase;
-  const rects = opponentRects(count);
+  // Se espera a mi mano nueva para animar: mientras, no se enseña la mesa ya cambiada.
+  const waiting = fx.waiting();
+  // En el duelo, las manos se voltean con la animación y el resultado llega después.
+  const dueling = phase === "showdown" && view.locked;
+  const heartStarted = (i: number) =>
+    tl.effects.some((e) => e.seat === i && tl.now >= e.start);
+  const revealed = !dueling || tl.effects.some((e) => tl.now >= e.start);
+  // La vida que se pierde en el duelo sigue entera hasta que se rompe el corazón.
+  const livesShown = (i: number) => {
+    const seat = table.seats[i];
+    const pending =
+      dueling && view.losers.has(seat.playerId) && !heartStarted(i);
+    return seat.lives + (pending ? 1 : 0);
+  };
 
   drawTable(ctx);
 
@@ -621,10 +657,18 @@ export function drawOnlineTable(
   // Rivales, en orden de turno a partir de mí.
   table.seats.forEach((seat, i) => {
     if (i === localIndex) return;
-    drawOnlineSeat(ctx, rects[relativeSeat(i, localIndex, count) - 1], seat, {
+    drawOnlineSeat(ctx, rivalPanel(count, localIndex, i), seat, {
       active: phase === "turn" && table.turnPlayerId === seat.playerId,
-      loser: phase === "showdown" && view.losers.has(seat.playerId),
+      loser: phase === "showdown" && revealed && view.losers.has(seat.playerId),
       showCards: phase !== "draw",
+      showFaces: !dueling,
+      showResult: revealed,
+      lives: livesShown(i),
+      hiddenSlots: new Set(
+        Array.from({ length: HAND_SIZE }, (_, k) => k).filter((k) =>
+          tl.hidden.has(`seat:${i}:${k}`),
+        ),
+      ),
     });
   });
 
@@ -641,6 +685,7 @@ export function drawOnlineTable(
       widowCardRects(),
       table.widow.map((_, i) => ({
         selected: table.widowOpen && view.selWidow === i,
+        hidden: tl.hidden.has(`widow:${i}`) || waiting,
       })),
     );
   }
@@ -649,15 +694,32 @@ export function drawOnlineTable(
   const taken = hand?.taken?.map((c) => `${c.rank}:${c.suit}`) ?? [];
   if (phase === "draw") {
     const card = me?.hand?.[0];
-    if (card) drawCardRow(ctx, [card], ownCardRects(1));
+    if (card) {
+      drawCardRow(ctx, [card], ownCardRects(1), [
+        { hidden: tl.hidden.has("own:0") },
+      ]);
+    }
   } else if (me?.alive) {
-    const cards: (Card | null)[] = hand
-      ? hand.hand
-      : Array.from({ length: me?.handCount ?? 0 }, () => null);
-    const styles: CardStyle[] = cards.map((card, i) => ({
-      selected: view.selOwn === i,
+    // La mano se dibuja en el orden visual (el que eligió el jugador); la selección guarda
+    // el índice de las reglas, así que acompaña a la carta aunque se mueva.
+    const indices = hand ? visualIndices(view.order, hand.hand) : null;
+    const cards: (Card | null)[] =
+      hand && indices
+        ? indices.map((k) => hand.hand[k])
+        : Array.from({ length: me?.handCount ?? 0 }, () => null);
+    // La carta arrastrada flota sobre la fila y las vecinas se apartan para dejarle hueco.
+    const floating = view.drag.floating();
+    const offsets = view.drag.offsets();
+    const slotStep = CARD_W + CARD_GAP;
+    const rects = ownCardRects(cards.length).map((r, v) => ({
+      ...r,
+      x: r.x + (offsets[v] ?? 0) * slotStep,
+    }));
+    const styles: CardStyle[] = cards.map((card, v) => ({
+      selected: view.selOwn !== null && indices?.[v] === view.selOwn,
+      hidden: tl.hidden.has(`own:${v}`) || waiting || floating?.slot === v,
       highlight:
-        phase === "showdown" && view.losers.has(playerId)
+        phase === "showdown" && revealed && view.losers.has(playerId)
           ? COLOR_MAGENTA
           : card &&
               phase === "turn" &&
@@ -665,7 +727,23 @@ export function drawOnlineTable(
             ? COLOR_CYAN
             : undefined,
     }));
-    drawCardRow(ctx, cards, ownCardRects(cards.length), styles);
+    drawCardRow(ctx, cards, rects, styles);
+    const lifted = floating ? cards[floating.slot] : null;
+    if (floating && lifted) {
+      drawCardPosed(
+        ctx,
+        lifted,
+        { w: CARD_W, h: CARD_H },
+        {
+          x: floating.x,
+          y: floating.y,
+          rot: 0,
+          scale: floating.scale,
+          flip: 1,
+        },
+        { highlight: floating.dragging ? COLOR_CYAN : undefined },
+      );
+    }
   }
   if (phase === "turn" || phase === "showdown") {
     const label = !me?.alive
@@ -682,14 +760,27 @@ export function drawOnlineTable(
     HAND_Y + 30,
     { size: 14, bold: true, color: myTurn ? COLOR_YELLOW : undefined },
   );
-  drawLives(ctx, me?.lives ?? 0, 70, HAND_Y + 54);
+  drawLives(ctx, me ? livesShown(localIndex) : 0, 70, HAND_Y + 54);
   drawText(ctx, `RONDA ${Math.max(table.round, 1)}`, W - 70, HAND_Y + 30, {
     size: 12,
     color: COLOR_DIM,
   });
 
-  // Estado y mensajes.
+  // Animaciones: cartas en vuelo, corazón roto, aro del turno, última vuelta y carteles.
   const veiled = table.paused || (me && !me.connected);
+  drawFlights(ctx, tl);
+  drawEffects(ctx, tl);
+  if (phase === "turn" && !veiled) {
+    const turn = table.seats.findIndex(
+      (s) => s.playerId === table.turnPlayerId,
+    );
+    if (turn >= 0)
+      drawTurnPulse(ctx, seatPanel(count, localIndex, turn), tl.now);
+    if (table.callerId !== null) drawLastLap(ctx, W / 2, 176, tl.now);
+  }
+  drawBadges(ctx, tl, (i) => badgeAnchor(count, localIndex, i));
+
+  // Estado y mensajes.
   if (phase === "turn" && !veiled) {
     drawText(
       ctx,
@@ -699,7 +790,7 @@ export function drawOnlineTable(
       { size: 13, color: myTurn ? COLOR_YELLOW : COLOR_CYAN },
     );
   }
-  const banner = bannerFor(view);
+  const banner = dueling ? null : bannerFor(view);
   if (banner) drawBannerBox(ctx, banner.lines, banner.color);
 
   // Pausa o desconexión: velo sobre la mesa; los botones se dibujan encima.

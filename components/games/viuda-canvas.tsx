@@ -75,20 +75,39 @@ export function ViudaCanvas({
     engineRef.current = engine;
 
     // Pantalla -> coordenadas lógicas del canvas, que se escala por CSS.
-    const toLogical = (e: PointerEvent | MouseEvent) => {
+    const toLogical = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      engine.setPointer(
-        ((e.clientX - rect.left) * W) / rect.width,
-        ((e.clientY - rect.top) * H) / rect.height,
-      );
+      return {
+        x: ((e.clientX - rect.left) * W) / rect.width,
+        y: ((e.clientY - rect.top) * H) / rect.height,
+      };
     };
-    const onPointerMove = (e: PointerEvent) => toLogical(e);
+    const onPointerMove = (e: PointerEvent) => {
+      const { x, y } = toLogical(e);
+      engine.setPointer(x, y);
+    };
     const onPointerLeave = () => engine.setPointer(-1, -1);
-    const onClick = (e: MouseEvent) => {
-      if (pausedRef.current) return;
-      toLogical(e);
-      engine.click();
+    // Pulsar y soltar sustituyen al clic: así un arrastre de carta no cuenta como clic.
+    const onPointerDown = (e: PointerEvent) => {
+      if (pausedRef.current || !e.isPrimary || e.button !== 0) return;
+      const { x, y } = toLogical(e);
+      // Con el puntero capturado el arrastre sigue aunque salga del canvas.
+      canvas.setPointerCapture(e.pointerId);
+      engine.pointerDown(x, y);
     };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!e.isPrimary) return;
+      if (canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      if (pausedRef.current) {
+        engine.pointerCancel();
+        return;
+      }
+      const { x, y } = toLogical(e);
+      engine.pointerUp(x, y);
+    };
+    const onPointerCancel = () => engine.pointerCancel();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!GAME_KEYS.has(e.code) || isTextTarget(e.target)) return;
@@ -117,7 +136,9 @@ export function ViudaCanvas({
 
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerleave", onPointerLeave);
-    canvas.addEventListener("click", onClick);
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
@@ -140,7 +161,9 @@ export function ViudaCanvas({
       cancelAnimationFrame(raf);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerleave", onPointerLeave);
-      canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerCancel);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -158,7 +181,7 @@ export function ViudaCanvas({
   return (
     <canvas
       ref={canvasRef}
-      className="game-canvas"
+      className="game-canvas game-canvas--drag"
       width={W}
       height={H}
       aria-label="Viuda"

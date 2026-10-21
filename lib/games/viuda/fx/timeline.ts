@@ -19,6 +19,7 @@ export interface FlyingCard {
   start: number; // ms en el reloj del timeline
   dur: number;
   hide: string[]; // huecos que no se dibujan quietos mientras dura (p. ej. "own:2")
+  highlight?: string; // color del borde (resalte de origen y destino)
 }
 
 export interface Badge {
@@ -28,6 +29,18 @@ export interface Badge {
   start: number;
   dur: number;
   sticky?: boolean; // se queda hasta clearSticky (marca del llamador)
+  strong?: boolean; // énfasis fuerte: cartel grande con rebote y aro (LLAMO)
+}
+
+// Efecto que no es una carta ni un cartel: hoy solo el corazón que se rompe en el duelo.
+export interface Effect {
+  kind: "heartBreak";
+  seat: number;
+  x: number;
+  y: number;
+  size: number;
+  start: number;
+  dur: number;
 }
 
 // Una escena es lo que provoca un evento: añade sus vuelos y carteles al empezar.
@@ -40,12 +53,14 @@ export interface Timeline {
   readonly now: number;
   readonly flights: readonly FlyingCard[];
   readonly badges: readonly Badge[];
+  readonly effects: readonly Effect[];
   readonly hidden: ReadonlySet<string>;
   readonly lockedUntil: number;
   update(dtSeconds: number): void;
   enqueue(scene: Scene): void;
   addFlight(flight: FlyingCard): void;
   addBadge(badge: Badge): void;
+  addEffect(effect: Effect): void;
   isLocked(): boolean;
   skip(): void; // termina de golpe lo que anima y descarta lo encolado
   clearSticky(): void;
@@ -100,6 +115,7 @@ export function createTimeline(): Timeline {
   let lockedUntil = 0;
   let flights: FlyingCard[] = [];
   let badges: Badge[] = [];
+  let effects: Effect[] = [];
   let hidden = new Set<string>();
   let queue: Scene[] = [];
   let sceneEnd = 0; // fin de la escena en curso
@@ -128,6 +144,9 @@ export function createTimeline(): Timeline {
     get badges() {
       return badges;
     },
+    get effects() {
+      return effects;
+    },
     get hidden() {
       return hidden;
     },
@@ -139,6 +158,7 @@ export function createTimeline(): Timeline {
       if (queue.length > 0 && now >= sceneEnd) startNext();
       flights = flights.filter((f) => now < f.start + f.dur);
       badges = badges.filter((b) => b.sticky || now < b.start + b.dur);
+      effects = effects.filter((e) => now < e.start + e.dur);
       rebuildHidden();
     },
     enqueue(scene) {
@@ -152,6 +172,9 @@ export function createTimeline(): Timeline {
     addBadge(badge) {
       badges.push(badge);
     },
+    addEffect(effect) {
+      effects.push(effect);
+    },
     isLocked() {
       return now < lockedUntil || queue.length > 0;
     },
@@ -159,6 +182,7 @@ export function createTimeline(): Timeline {
       queue = [];
       flights = [];
       badges = badges.filter((b) => b.sticky);
+      effects = [];
       hidden = new Set();
       sceneEnd = now;
       lockedUntil = now;
@@ -172,6 +196,7 @@ export function createTimeline(): Timeline {
       lockedUntil = 0;
       flights = [];
       badges = [];
+      effects = [];
       hidden = new Set();
       queue = [];
     },
