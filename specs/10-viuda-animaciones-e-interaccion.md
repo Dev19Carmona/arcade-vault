@@ -1,6 +1,6 @@
 # SPEC 10 — Viuda: animaciones, claridad de acciones y orden de la mano
 
-> **Estado:** Draft
+> **Estado:** Approved
 > **Depende de:** SPEC 07 (Viuda VS CPU, motor y canvas), SPEC 08 (Viuda en línea, `rules.ts`, `table-view.ts`)
 > **Fecha:** 2026-10-21
 > **Objetivo:** Hacer que Viuda (VS CPU y en línea) se entienda y se sienta viva: cada reparto, cambio de carta, paso, llamada y duelo se anima de forma breve y legible, y el jugador puede reordenar su mano arrastrando las cartas.
