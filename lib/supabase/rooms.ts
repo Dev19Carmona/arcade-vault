@@ -97,3 +97,16 @@ export async function setStatus(
     .eq("code", code);
   if (error) throw new Error(`No se pudo cambiar la sala: ${error.message}`);
 }
+
+export type JoinBlocker = "closed" | "started" | "full";
+
+// Por qué no se puede entrar a una sala, o null si se puede. Una sala en espera sin
+// latido reciente se trata como cerrada: su anfitrión ya no está.
+export function joinBlocker(room: RoomRow): JoinBlocker | null {
+  if (room.status === "closed") return "closed";
+  if (room.status === "playing") return "started";
+  const idle = Date.now() - Date.parse(room.updated_at);
+  if (idle > ROOM_OPEN_SECONDS * 1000) return "closed";
+  if (room.player_count >= MAX_PLAYERS) return "full";
+  return null;
+}
