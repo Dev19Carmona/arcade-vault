@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ViudaCanvas } from "@/components/games/viuda-canvas";
 import { OnlineRoom } from "@/components/games/viuda-online/online-room";
 import { Lobby, type EnteredRoom } from "@/components/games/viuda-online/lobby";
-import type { GameCanvasProps } from "@/lib/games/types";
+import type { GameCanvasProps, GameSnapshot } from "@/lib/games/types";
 import {
   clearSession,
   loadSession,
@@ -21,6 +21,25 @@ type View =
 // Entrada de Viuda en el registro: elige entre VS CPU (el canvas de siempre) y el modo en línea.
 export function ViudaGame(props: GameCanvasProps) {
   const [view, setView] = useState<View>({ name: "select" });
+  const { onChange } = props;
+
+  // Fuera de VS CPU la plataforma no debe mostrar PAUSA, FIN ni puntuación. Se avisa solo
+  // cuando el snapshot cambia: la mesa en línea se actualiza varias veces por segundo.
+  const lastReported = useRef("");
+  const report = useCallback(
+    (snapshot: GameSnapshot) => {
+      const key = JSON.stringify(snapshot);
+      if (key === lastReported.current) return;
+      lastReported.current = key;
+      onChange(snapshot);
+    },
+    [onChange],
+  );
+  useEffect(() => {
+    if (view.name === "select" || view.name === "lobby") {
+      report({ score: 0, online: true });
+    }
+  }, [view.name, report]);
 
   // Si la pestaña se recargó en plena partida, se vuelve al asiento reservado.
   useEffect(() => {
@@ -74,7 +93,11 @@ export function ViudaGame(props: GameCanvasProps) {
 
   if (view.name === "room") {
     return (
-      <OnlineRoom room={view.room} onLeave={() => setView({ name: "lobby" })} />
+      <OnlineRoom
+        room={view.room}
+        onSnapshot={report}
+        onLeave={() => setView({ name: "lobby" })}
+      />
     );
   }
 

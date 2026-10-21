@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { GameSnapshot } from "@/lib/games/types";
 import { clearSession } from "@/lib/games/viuda/online/identity";
+import { onlineSnapshot } from "@/lib/games/viuda/online/snapshot";
 import type { EnteredRoom } from "./lobby";
 import { OnlineTable } from "./online-table";
 import { useRoomSession, type RoomFailure } from "./use-room-session";
@@ -22,9 +24,11 @@ function failureText(failure: RoomFailure): string {
 export function OnlineRoom({
   room,
   onLeave,
+  onSnapshot,
 }: {
   room: EnteredRoom;
   onLeave: () => void;
+  onSnapshot: (snapshot: GameSnapshot) => void; // HUD de la plataforma
 }) {
   const {
     table,
@@ -41,6 +45,11 @@ export function OnlineRoom({
     leave,
   } = useRoomSession(room);
   const [starting, setStarting] = useState(false);
+
+  // El HUD muestra RONDA, JUGADORES y mis vidas; sin puntuación ni pausa.
+  useEffect(() => {
+    onSnapshot(onlineSnapshot(table, room.playerId));
+  }, [table, room.playerId, onSnapshot]);
 
   function exit() {
     leave();
