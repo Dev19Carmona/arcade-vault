@@ -10,15 +10,11 @@ import {
   COLOR_YELLOW,
   CPU_THINK_MAX,
   CPU_THINK_MIN,
-  HAND_NAMES,
   HAND_SIZE,
   HAND_Y,
   HUMAN_SEAT,
   LIVES,
   MAX_DT,
-  SEAT_H,
-  SEAT_POSITIONS,
-  SEAT_W,
   SEATS,
   W,
   WIDOW_CARD_H,
@@ -39,6 +35,15 @@ import {
   pointInRect,
   type CardStyle,
 } from "./entities";
+import { opponentRects, relativeSeat } from "./online/layout";
+import type { OnlineAction } from "./online/protocol";
+import {
+  advance,
+  applyAction,
+  createGame,
+  type RulesResult,
+  type RulesState,
+} from "./rules";
 import type {
   Card,
   Rect,
@@ -46,27 +51,9 @@ import type {
   ViudaEngineOptions,
   ViudaSnapshot,
 } from "./types";
-import {
-  cardLabel,
-  compareDrawCards,
-  compareHands,
-  createDeck,
-  evaluateHand,
-  finalScore,
-  shuffle,
-} from "./utils";
+import { cardLabel, evaluateHand, finalScore } from "./utils";
 
-type Phase = "draw" | "turn" | "showdown" | "final";
 type ButtonId = "continue" | "swap5" | "swap1" | "pass" | "call";
-
-interface Seat {
-  lives: number;
-  alive: boolean;
-  hand: Card[];
-  drawCard: Card | null; // carta del sorteo inicial
-  caption: string;
-  loser: boolean;
-}
 
 interface ButtonView {
   id: ButtonId;
@@ -75,7 +62,6 @@ interface ButtonView {
   disabled: boolean;
 }
 
-const SEAT_NAMES = ["TÚ", "CPU 1", "CPU 2", "CPU 3"];
 const OWN_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5"];
 const WIDOW_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR", "KeyT"];
 const CONTINUE_KEYS = ["Space", "Enter", "NumpadEnter"];
@@ -87,38 +73,37 @@ function handScore(cards: readonly Card[]): number {
 }
 
 export function createViudaEngine({
+  seatCount = SEATS,
+  localSeat = HUMAN_SEAT,
   onChange,
   onGameOver,
 }: ViudaEngineOptions): ViudaEngine {
-  let seats: Seat[] = [];
-  let widow: Card[] = [];
-  let widowOpen = false;
-  let phase: Phase = "draw";
-  let round = 0;
-  let starter = 0;
-  let current = 0;
-  let nextStarter = 0;
-  let lap = 1;
-  let actionsInLap = 0;
-  let caller: number | null = null;
-  let finalTurnsLeft = 0; // turnos que faltan tras un "llamo" para volver a quien llamó
+  // Los rivales se numeran en orden de turno a partir del asiento local.
+  const seatName = (i: number) =>
+    i === localSeat ? "TÚ" : `CPU ${relativeSeat(i, localSeat, seatCount)}`;
+  const opponents = opponentRects(seatCount);
+  const seatIds = Array.from({ length: seatCount }, (_, i) => `seat-${i}`);
+  const random = () => Math.random();
+  const newGame = () =>
+    createGame(seatIds, random, { endWhenEliminated: seatIds[localSeat] });
+
+  // Las reglas viven en rules.ts; aquí solo queda lo que es de esta mesa: la IA,
+  // la selección de cartas, el reloj de las CPU, el puntaje y el dibujo.
+  let state: RulesState = newGame();
   let thinkTimer = 0;
   let selOwn: number | null = null;
   let selWidow: number | null = null;
   let score = 0;
   let gameOverEmitted = false;
   let pointer = { x: -1, y: -1 };
-  let banner: { lines: string[]; color: string } | null = null;
   let last: ViudaSnapshot | null = null;
-
-  const random = () => Math.random();
 
   function getSnapshot(): ViudaSnapshot {
     return {
       score,
-      lives: seats[HUMAN_SEAT]?.lives ?? LIVES,
-      round,
-      rivals: seats.filter((s, i) => i !== HUMAN_SEAT && s.alive).length,
+      lives: state.seats[localSeat]?.lives ?? LIVES,
+      round: state.round,
+      rivals: state.seats.filter((s, i) => i !== localSeat && s.alive).length,
     };
   }
 
@@ -136,209 +121,30 @@ export function createViudaEngine({
     onChange(snap);
   }
 
-  function aliveSeats(): number[] {
-    return seats.flatMap((s, i) => (s.alive ? [i] : []));
-  }
-
-  // Siguiente asiento vivo en sentido horario (0 → 1 → 2 → 3).
-  function nextAlive(from: number): number {
-    for (let step = 1; step <= SEATS; step++) {
-      const i = (from + step) % SEATS;
-      if (seats[i].alive) return i;
-    }
-    return from;
+  function aliveCount(): number {
+    return state.seats.filter((s) => s.alive).length;
   }
 
   function scheduleThink() {
     thinkTimer = CPU_THINK_MIN + random() * (CPU_THINK_MAX - CPU_THINK_MIN);
   }
 
-  function startDraw() {
-    phase = "draw";
-    const deck = shuffle(createDeck(), random);
-    let best = -1;
-    let k = 0;
-    seats.forEach((seat, i) => {
-      if (!seat.alive) return;
-      seat.drawCard = deck[k++];
-      if (
-        best < 0 ||
-        compareDrawCards(seat.drawCard, seats[best].drawCard as Card) > 0
-      )
-        best = i;
-    });
-    starter = best;
-    banner = {
-      lines: [
-        `SORTEO: EMPIEZA ${SEAT_NAMES[starter]}`,
-        "La carta más alta reparte el primer turno",
-        `${SEAT_NAMES[starter]} sacó ${cardLabel(seats[starter].drawCard as Card)}`,
-      ],
-      color: COLOR_YELLOW,
-    };
-  }
-
-  function startRound(first: number) {
-    round++;
-    const deck = shuffle(createDeck(), random);
-    let k = 0;
-    for (const seat of seats) {
-      seat.drawCard = null;
-      seat.caption = "";
-      seat.loser = false;
-      seat.hand = seat.alive ? deck.slice(k, (k += HAND_SIZE)) : [];
-    }
-    widow = deck.slice(k, k + HAND_SIZE);
-    widowOpen = false;
-    caller = null;
-    finalTurnsLeft = 0;
-    lap = 1;
-    actionsInLap = 0;
-    starter = first;
-    current = first;
+  // Aplica el resultado de una regla; si fue rechazada, el estado no cambia.
+  function commit(result: RulesResult): boolean {
+    if (result.error) return false;
+    state = result.state;
     selOwn = null;
     selWidow = null;
-    banner = null;
-    phase = "turn";
-    scheduleThink();
-  }
-
-  function startShowdown() {
-    const alive = aliveSeats();
-    const values = new Map(alive.map((i) => [i, evaluateHand(seats[i].hand)]));
-    let worst = alive[0];
-    for (const i of alive) {
-      if (compareHands(values.get(i)!, values.get(worst)!) < 0) worst = i;
+    if (state.phase === "turn") scheduleThink();
+    if (state.phase === "final") {
+      const me = state.seats[localSeat];
+      score = finalScore(me.alive, seatCount - 1, me.lives);
     }
-    const losers = alive.filter(
-      (i) => compareHands(values.get(i)!, values.get(worst)!) === 0,
-    );
-    for (const i of alive) {
-      seats[i].caption = HAND_NAMES[values.get(i)!.category];
-      seats[i].loser = losers.includes(i);
-      if (seats[i].loser) seats[i].lives--;
-    }
-
-    // Empieza la siguiente ronda quien perdió vida (el primero en orden desde el actual).
-    let first = starter;
-    for (let step = 0; step < SEATS; step++) {
-      const i = (starter + step) % SEATS;
-      if (losers.includes(i)) {
-        first = i;
-        break;
-      }
-    }
-    nextStarter = first;
-
-    const calledBy =
-      caller === null
-        ? "Duelo"
-        : `${SEAT_NAMES[caller]} ${caller === HUMAN_SEAT ? "llamaste" : "llamó"}`;
-    const loserNames = losers.map((i) => SEAT_NAMES[i]).join(", ");
-    banner = {
-      lines: [
-        `DUELO · PIERDE UNA VIDA: ${loserNames}`,
-        calledBy,
-        `Tu mano: ${seats[HUMAN_SEAT].caption}`,
-      ],
-      color: losers.includes(HUMAN_SEAT) ? COLOR_MAGENTA : COLOR_GREEN,
-    };
-    phase = "showdown";
-    selOwn = null;
-    selWidow = null;
+    return true;
   }
 
-  function startFinal(victory: boolean) {
-    score = finalScore(victory, SEATS - 1, seats[HUMAN_SEAT].lives);
-    phase = "final";
-    banner = victory
-      ? {
-          lines: [
-            "¡GANASTE LA VIUDA!",
-            "Eres el último jugador con vida",
-            `Puntuación: ${score}`,
-          ],
-          color: COLOR_GREEN,
-        }
-      : {
-          lines: [
-            "HAS SIDO ELIMINADO",
-            "Te quedaste sin vidas",
-            "Puntuación: 0",
-          ],
-          color: COLOR_MAGENTA,
-        };
-  }
-
-  function resolveShowdown() {
-    for (const seat of seats) {
-      if (seat.lives <= 0) seat.alive = false;
-    }
-    if (!seats[HUMAN_SEAT].alive) {
-      startFinal(false);
-    } else if (aliveSeats().length === 1) {
-      startFinal(true);
-    } else {
-      const first = seats[nextStarter].alive
-        ? nextStarter
-        : nextAlive(nextStarter);
-      startRound(first);
-    }
-  }
-
-  function endTurn() {
-    selOwn = null;
-    selWidow = null;
-    if (caller !== null) {
-      // Última vuelta tras la llamada: al regresar a quien llamó, se muestran las manos.
-      finalTurnsLeft--;
-      if (finalTurnsLeft <= 0) {
-        startShowdown();
-        return;
-      }
-    } else {
-      actionsInLap++;
-      if (actionsInLap >= aliveSeats().length) {
-        // Vuelta completa sin llamadas: la viuda se abre y las vueltas siguen hasta que alguien llame.
-        lap++;
-        actionsInLap = 0;
-        widowOpen = true;
-        for (const seat of seats) seat.caption = "";
-      }
-    }
-    current = nextAlive(current);
-    scheduleThink();
-  }
-
-  function doPass(seat: number) {
-    seats[seat].caption = "PASO";
-    endTurn();
-  }
-
-  function doCall(seat: number) {
-    seats[seat].caption = "LLAMO";
-    caller = seat;
-    finalTurnsLeft = aliveSeats().length - 1;
-    selOwn = null;
-    selWidow = null;
-    current = nextAlive(seat);
-    scheduleThink();
-  }
-
-  function doSwapAll(seat: number) {
-    const own = seats[seat].hand;
-    seats[seat].hand = widow;
-    widow = own;
-    widowOpen = true;
-    seats[seat].caption = "CAMBIÓ 5";
-    endTurn();
-  }
-
-  function doSwapOne(seat: number, own: number, wid: number) {
-    const hand = seats[seat].hand;
-    [hand[own], widow[wid]] = [widow[wid], hand[own]];
-    seats[seat].caption = "CAMBIÓ 1";
-    endTurn();
+  function act(seat: number, action: OnlineAction): boolean {
+    return commit(applyAction(state, seatIds[seat], action));
   }
 
   // Mejor cambio de una carta con la viuda abierta: devuelve la mejora de valor.
@@ -347,7 +153,7 @@ export function createViudaEngine({
     let best = { gain: 0, own: 0, wid: 0 };
     for (let i = 0; i < HAND_SIZE; i++) {
       for (let j = 0; j < HAND_SIZE; j++) {
-        const trial = hand.map((c, k) => (k === i ? widow[j] : c));
+        const trial = hand.map((c, k) => (k === i ? state.widow[j] : c));
         const gain = handScore(trial) - base;
         if (gain > best.gain) best = { gain, own: i, wid: j };
       }
@@ -356,68 +162,74 @@ export function createViudaEngine({
   }
 
   function cpuAct() {
-    const seat = current;
-    const hand = seats[seat].hand;
+    const seat = state.current;
+    const hand = state.seats[seat].hand;
     const value = handScore(hand);
-    const others = aliveSeats().length;
+    const others = aliveCount();
     // Con menos rivales vivos se llama con menos; un poco de ruido para no ser predecible.
     // Cada vuelta sin llamadas baja el umbral, así que tarde o temprano alguien llama.
     const threshold =
-      2.1 - (SEATS - others) * 0.25 - (lap - 1) * 0.2 + (random() - 0.5) * 0.4;
+      2.1 -
+      (seatCount - others) * 0.25 -
+      (state.lap - 1) * 0.2 +
+      (random() - 0.5) * 0.4;
 
-    if (caller === null && value >= threshold) {
-      doCall(seat);
+    if (state.caller === null && value >= threshold) {
+      act(seat, { type: "call" });
       return;
     }
-    if (!widowOpen) {
+    if (!state.widowOpen) {
       // Viuda boca abajo: no se conoce; con mano débil se arriesga a tomarla entera.
-      if (value < 1.1 && random() < 0.75) doSwapAll(seat);
-      else doPass(seat);
+      if (value < 1.1 && random() < 0.75) act(seat, { type: "swap5" });
+      else act(seat, { type: "pass" });
       return;
     }
     // Viuda abierta: se pueden cambiar las 5 o una carta, solo si mejora la mano.
     const swap = bestSingleSwap(hand);
-    const gainAll = handScore(widow) - value;
-    if (gainAll > 0.3 && gainAll > swap.gain) doSwapAll(seat);
-    else if (swap.gain > 0.15) doSwapOne(seat, swap.own, swap.wid);
-    else doPass(seat);
+    const gainAll = handScore(state.widow) - value;
+    if (gainAll > 0.3 && gainAll > swap.gain) act(seat, { type: "swap5" });
+    else if (swap.gain > 0.15) {
+      act(seat, { type: "swap1", handIndex: swap.own, widowIndex: swap.wid });
+    } else act(seat, { type: "pass" });
   }
 
   function humanTurn(): boolean {
-    return phase === "turn" && current === HUMAN_SEAT;
+    return state.phase === "turn" && state.current === localSeat;
   }
 
   function humanSwapAll() {
-    if (humanTurn()) doSwapAll(HUMAN_SEAT);
+    if (humanTurn()) act(localSeat, { type: "swap5" });
   }
 
   function humanSwapOne() {
-    if (humanTurn() && widowOpen && selOwn !== null && selWidow !== null) {
-      doSwapOne(HUMAN_SEAT, selOwn, selWidow);
+    if (humanTurn() && selOwn !== null && selWidow !== null) {
+      act(localSeat, {
+        type: "swap1",
+        handIndex: selOwn,
+        widowIndex: selWidow,
+      });
     }
   }
 
   function activate(id: ButtonId) {
     if (id === "continue") {
-      if (phase === "draw") startRound(starter);
-      else if (phase === "showdown") resolveShowdown();
-      else if (phase === "final" && !gameOverEmitted) {
+      if (state.phase === "draw" || state.phase === "showdown") {
+        commit(advance(state, random));
+      } else if (state.phase === "final" && !gameOverEmitted) {
         gameOverEmitted = true;
         emit();
         onGameOver(score);
       }
     } else if (humanTurn()) {
-      if (id === "pass") doPass(HUMAN_SEAT);
-      else if (id === "call") {
-        if (caller === null) doCall(HUMAN_SEAT);
-      }
+      if (id === "pass") act(localSeat, { type: "pass" });
+      else if (id === "call") act(localSeat, { type: "call" });
       else if (id === "swap5") humanSwapAll();
       else humanSwapOne();
     }
   }
 
   function buttons(): ButtonView[] {
-    if (phase !== "turn") {
+    if (state.phase !== "turn") {
       return [
         {
           id: "continue",
@@ -435,7 +247,7 @@ export function createViudaEngine({
       color: COLOR_CYAN,
       disabled: false,
     });
-    if (widowOpen) {
+    if (state.widowOpen) {
       list.push({
         id: "swap1",
         label: "CAMBIAR 1 [X]",
@@ -450,7 +262,7 @@ export function createViudaEngine({
       disabled: false,
     });
     // Tras un "llamo" la última vuelta es solo para cambiar o pasar.
-    if (caller === null) {
+    if (state.caller === null) {
       list.push({
         id: "call",
         label: "LLAMO [L]",
@@ -488,7 +300,7 @@ export function createViudaEngine({
       }
     }
     // Con la viuda abierta se eligen una carta propia y una de la viuda.
-    if (humanTurn() && widowOpen) {
+    if (humanTurn() && state.widowOpen) {
       ownRects().forEach((r, i) => {
         if (pointInRect(x, y, r)) selOwn = selOwn === i ? null : i;
       });
@@ -501,13 +313,13 @@ export function createViudaEngine({
 
   function press(code: string) {
     if (CONTINUE_KEYS.includes(code)) {
-      if (phase !== "turn") activate("continue");
+      if (state.phase !== "turn") activate("continue");
     } else if (humanTurn()) {
       if (code === "KeyP") activate("pass");
       else if (code === "KeyL") activate("call");
       else if (code === "KeyC") humanSwapAll();
       else if (code === "KeyX") humanSwapOne();
-      else if (widowOpen) {
+      else if (state.widowOpen) {
         const own = OWN_KEYS.indexOf(code);
         const wid = WIDOW_KEYS.indexOf(code);
         if (own >= 0) selOwn = selOwn === own ? null : own;
@@ -519,7 +331,7 @@ export function createViudaEngine({
 
   function update(rawDt: number) {
     const dt = Math.min(Math.max(rawDt, 0), MAX_DT);
-    if (phase === "turn" && current !== HUMAN_SEAT) {
+    if (state.phase === "turn" && state.current !== localSeat) {
       thinkTimer -= dt;
       if (thinkTimer <= 0) cpuAct();
     }
@@ -527,47 +339,97 @@ export function createViudaEngine({
   }
 
   function statusText(): string {
-    if (phase !== "turn") return "";
-    if (caller !== null && humanTurn()) {
-      return `${SEAT_NAMES[caller]} llamó · última vuelta: cambia o pasa`;
+    if (state.phase !== "turn") return "";
+    if (state.caller !== null && humanTurn()) {
+      return `${seatName(state.caller)} llamó · última vuelta: cambia o pasa`;
     }
     if (humanTurn()) {
-      if (!widowOpen) {
+      if (!state.widowOpen) {
         return "TU TURNO · viuda cerrada: cambia las 5 cartas, pasa o llama";
       }
       return "TU TURNO · viuda abierta: cambia las 5, o elige 1 carta tuya y 1 de la viuda";
     }
-    const lastLap = caller !== null ? " (última vuelta tras la llamada)" : "";
-    return `${SEAT_NAMES[current]} está pensando…${lastLap}`;
+    const lastLap =
+      state.caller !== null ? " (última vuelta tras la llamada)" : "";
+    return `${seatName(state.current)} está pensando…${lastLap}`;
+  }
+
+  // Mensaje central de cada fase, derivado del estado de las reglas.
+  function banner(): { lines: string[]; color: string } | null {
+    const me = state.seats[localSeat];
+    if (state.phase === "draw") {
+      const starter = state.seats[state.starter];
+      return {
+        lines: [
+          `SORTEO: EMPIEZA ${seatName(state.starter)}`,
+          "La carta más alta reparte el primer turno",
+          `${seatName(state.starter)} sacó ${cardLabel(starter.drawCard as Card)}`,
+        ],
+        color: COLOR_YELLOW,
+      };
+    }
+    if (state.phase === "showdown") {
+      const losers = state.seats.flatMap((s, i) => (s.loser ? [i] : []));
+      const calledBy =
+        state.caller === null
+          ? "Duelo"
+          : `${seatName(state.caller)} ${state.caller === localSeat ? "llamaste" : "llamó"}`;
+      return {
+        lines: [
+          `DUELO · PIERDE UNA VIDA: ${losers.map((i) => seatName(i)).join(", ")}`,
+          calledBy,
+          `Tu mano: ${me.caption}`,
+        ],
+        color: me.loser ? COLOR_MAGENTA : COLOR_GREEN,
+      };
+    }
+    if (state.phase === "final") {
+      return me.alive
+        ? {
+            lines: [
+              "¡GANASTE LA VIUDA!",
+              "Eres el último jugador con vida",
+              `Puntuación: ${score}`,
+            ],
+            color: COLOR_GREEN,
+          }
+        : {
+            lines: [
+              "HAS SIDO ELIMINADO",
+              "Te quedaste sin vidas",
+              "Puntuación: 0",
+            ],
+            color: COLOR_MAGENTA,
+          };
+    }
+    return null;
   }
 
   function draw(ctx: CanvasRenderingContext2D) {
     drawTable(ctx);
+    const { phase } = state;
 
     // Paneles de las CPU.
-    for (let i = 1; i < SEATS; i++) {
-      const seat = seats[i];
-      const pos = SEAT_POSITIONS[i];
+    for (let i = 0; i < seatCount; i++) {
+      if (i === localSeat) continue;
+      const seat = state.seats[i];
+      const rect = opponents[relativeSeat(i, localSeat, seatCount) - 1];
       const showHand = phase === "showdown" || phase === "final";
-      drawSeat(
-        ctx,
-        { x: pos.x, y: pos.y, w: SEAT_W, h: SEAT_H },
-        {
-          name: SEAT_NAMES[i],
-          lives: seat.lives,
-          cardCount: seat.alive && phase !== "draw" ? HAND_SIZE : 0,
-          hand:
-            phase === "draw" && seat.drawCard
-              ? [seat.drawCard]
-              : showHand && seat.alive
-                ? seat.hand
-                : undefined,
-          active: phase === "turn" && current === i,
-          eliminated: !seat.alive,
-          loser: seat.loser && phase === "showdown",
-          caption: seat.caption,
-        },
-      );
+      drawSeat(ctx, rect, {
+        name: seatName(i),
+        lives: seat.lives,
+        cardCount: seat.alive && phase !== "draw" ? HAND_SIZE : 0,
+        hand:
+          phase === "draw" && seat.drawCard
+            ? [seat.drawCard]
+            : showHand && seat.alive
+              ? seat.hand
+              : undefined,
+        active: phase === "turn" && state.current === i,
+        eliminated: !seat.alive,
+        loser: seat.loser && phase === "showdown",
+        caption: seat.caption,
+      });
     }
 
     // La viuda.
@@ -579,14 +441,16 @@ export function createViudaEngine({
     if (phase !== "draw") {
       drawCardRow(
         ctx,
-        widow.map((c) => (widowOpen ? c : null)),
+        state.widow.map((c) => (state.widowOpen ? c : null)),
         widowRects(),
-        widow.map((_, i) => ({ selected: widowOpen && selWidow === i })),
+        state.widow.map((_, i) => ({
+          selected: state.widowOpen && selWidow === i,
+        })),
       );
     }
 
     // Tu mano.
-    const me = seats[HUMAN_SEAT];
+    const me = state.seats[localSeat];
     if (phase === "draw" && me.drawCard) {
       drawCardRow(ctx, [me.drawCard], ownRects(1));
     } else if (me.alive || phase === "final") {
@@ -611,7 +475,7 @@ export function createViudaEngine({
       color: humanTurn() ? COLOR_YELLOW : undefined,
     });
     drawLives(ctx, me.lives, 70, HAND_Y + 54);
-    drawText(ctx, `RONDA ${Math.max(round, 1)}`, W - 70, HAND_Y + 30, {
+    drawText(ctx, `RONDA ${Math.max(state.round, 1)}`, W - 70, HAND_Y + 30, {
       size: 12,
       color: COLOR_DIM,
     });
@@ -624,7 +488,8 @@ export function createViudaEngine({
         color: humanTurn() ? COLOR_YELLOW : COLOR_CYAN,
       });
     }
-    if (banner) drawBanner(ctx, banner.lines, 360, banner.color);
+    const message = banner();
+    if (message) drawBanner(ctx, message.lines, 360, message.color);
 
     // Botones.
     const views = buttons();
@@ -639,27 +504,15 @@ export function createViudaEngine({
   }
 
   function reset() {
-    seats = Array.from({ length: SEATS }, () => ({
-      lives: LIVES,
-      alive: true,
-      hand: [],
-      drawCard: null,
-      caption: "",
-      loser: false,
-    }));
-    widow = [];
-    widowOpen = false;
-    round = 0;
+    state = newGame();
     score = 0;
     gameOverEmitted = false;
-    caller = null;
     selOwn = null;
     selWidow = null;
-    startDraw();
     emit();
   }
 
-  reset();
+  emit();
 
   return {
     update,

@@ -6,6 +6,8 @@ export interface ViudaSnapshot {
 }
 
 export interface ViudaEngineOptions {
+  seatCount?: number; // asientos de la partida; por defecto SEATS (4)
+  localSeat?: number; // asiento del jugador local; por defecto HUMAN_SEAT (0)
   onChange: (snapshot: ViudaSnapshot) => void; // solo cuando cambia algún campo
   onGameOver: (finalScore: number) => void; // una única vez por partida
 }
