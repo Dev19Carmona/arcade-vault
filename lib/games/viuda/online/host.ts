@@ -6,6 +6,7 @@ import {
   advance,
   applyAction,
   createGame,
+  eliminate,
   getRanking,
   type RulesState,
 } from "../rules";
@@ -30,6 +31,9 @@ const HEARTBEAT_MS = 20_000;
 // El sorteo y el duelo avanzan solos tras este tiempo si el anfitrión no pulsa CONTINUAR.
 const AUTO_ADVANCE_MS = 8000;
 const ADVANCE_TICK_MS = 250;
+// Una desconexión solo cuenta si presence sigue sin el jugador pasado este margen:
+// al sincronizarse, presence puede emitir un leave seguido de un join sin que nadie se vaya.
+const LEAVE_GRACE_MS = 1500;
 const FALLBACK_NAME = "JUGADOR";
 
 export interface HostSessionOptions {
@@ -45,6 +49,9 @@ export interface HostSession {
   start(): Promise<boolean>; // INICIAR: cierra la entrada y pasa la sala a `playing`
   act(action: OnlineAction): void; // acción del propio anfitrión
   continueGame(): void; // CONTINUAR en el sorteo y el duelo
+  pause(): void; // PAUSAR: ninguna acción de juego se acepta y los desconectados pueden volver
+  resume(): void; // REANUDAR: los que siguen desconectados quedan eliminados
+  eliminatePlayer(playerId: string): void; // ELIMINAR a un jugador desconectado
   close(): Promise<void>; // SALIR: cierra la sala para todos
   dispose(): Promise<void>; // suelta canales y temporizadores sin tocar el estado de la sala
 }
@@ -82,6 +89,14 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let advanceTimer: ReturnType<typeof setInterval> | null = null;
   let disposed = false;
+
+  // Pausa y desconexiones (solo con partida).
+  let paused = false;
+  let pausedRemainingMs: number | null = null; // lo que faltaba para avanzar al pausar
+  let pausedPhase: RulesState["phase"] | null = null;
+  const connected = new Set<string>(); // jugadores de la partida que siguen conectados
+  const removed = new Set<string>(); // eliminados por desconexión: su asiento ya no está reservado
+  const leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Un canal por jugador para su mano, así las cartas ocultas no viajan por el público.
   // Se envía por WebSocket cuando el canal ya está suscrito; hasta entonces, solo se
@@ -122,7 +137,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     return {
       seq,
       phase: g.phase,
-      paused: false,
+      paused,
       round: g.round,
       hostId: playerId,
       seats: g.seats.map((seat) => ({
@@ -130,7 +145,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         name: names.get(seat.id) ?? FALLBACK_NAME,
         lives: seat.lives,
         alive: seat.alive,
-        connected: true,
+        connected: seat.id === playerId || connected.has(seat.id),
         handCount: seat.alive && g.phase !== "draw" ? seat.hand.length : 0,
         lastAction: seat.caption || null,
         // Las manos solo se ven en el duelo; en el sorteo, la carta sacada es pública.
@@ -147,8 +162,12 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       widow: g.widow.map((card) => (g.widowOpen ? card : null)),
       widowOpen: g.widowOpen,
       ranking: g.phase === "final" ? getRanking(g).flat() : null,
-      autoAdvanceIn:
-        advanceDeadline === null
+      // En pausa la cuenta atrás queda congelada en lo que faltaba.
+      autoAdvanceIn: paused
+        ? pausedRemainingMs === null
+          ? null
+          : Math.ceil(pausedRemainingMs / 1000)
+        : advanceDeadline === null
           ? null
           : Math.max(0, Math.ceil((advanceDeadline - Date.now()) / 1000)),
     };
@@ -257,8 +276,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
 
   // --- Partida ---
 
-  // El sorteo y el duelo esperan CONTINUAR; si no llega, avanzan solos.
+  // El sorteo y el duelo esperan CONTINUAR; si no llega, avanzan solos (salvo en pausa).
   function armAdvance() {
+    if (paused) return;
     const waiting = game?.phase === "draw" || game?.phase === "showdown";
     advanceDeadline = waiting ? Date.now() + AUTO_ADVANCE_MS : null;
   }
@@ -271,13 +291,15 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   }
 
   function advanceGame() {
-    if (disposed || !game) return;
+    if (disposed || !game || paused) return;
     const result = advance(game, Math.random);
     if (!result.error) commit(result.state);
   }
 
   function handleAction(id: string, action: OnlineAction) {
-    if (disposed || !game) return;
+    // En pausa no se acepta ninguna acción; un jugador que el anfitrión ve desconectado tampoco puede jugar.
+    if (disposed || !game || paused) return;
+    if (id !== playerId && !connected.has(id)) return;
     const before = game;
     const result = applyAction(before, id, action);
     // Acción inválida (fuera de turno, viuda cerrada, eliminado…): el estado no cambia.
@@ -291,12 +313,125 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     commit(result.state);
   }
 
+  // --- Desconexión, reenganche y pausa ---
+
+  // En espera, quien se va sale de la sala; en partida, solo queda marcado como desconectado.
+  function handleDisconnect(id: string) {
+    if (disposed || id === playerId) return;
+    if (!game) {
+      removePlayer(id);
+      return;
+    }
+    if (connected.delete(id)) publish();
+  }
+
+  function scheduleLeaveCheck(id: string) {
+    if (disposed || id === playerId) return;
+    const pending = leaveTimers.get(id);
+    if (pending) clearTimeout(pending);
+    leaveTimers.set(
+      id,
+      setTimeout(() => {
+        leaveTimers.delete(id);
+        if (disposed || id in channel.presenceState()) return;
+        handleDisconnect(id);
+      }, LEAVE_GRACE_MS),
+    );
+  }
+
+  // Un jugador pide volver a su asiento (recargó la pestaña o perdió la conexión).
+  function handleRejoin(id: string) {
+    if (disposed || id === playerId) return;
+    if (!game) {
+      // En espera no hay asiento que reservar: si sigue en la lista, se le reenvía la mesa.
+      if (players.some((p) => p.playerId === id)) publish();
+      else reject(id, "removed");
+      return;
+    }
+    const seat = game.seats.find((s) => s.id === id);
+    if (!seat || removed.has(id)) {
+      reject(id, "removed");
+      return;
+    }
+    if (connected.has(id)) {
+      // El anfitrión aún lo ve conectado: solo recupera la mesa y su mano.
+      sentHands.delete(id);
+      publish();
+      sendHands();
+      return;
+    }
+    // Con la partida en marcha un jugador vivo no puede volver; un espectador sí.
+    if (!paused && seat.alive) {
+      reject(id, "running");
+      return;
+    }
+    connected.add(id);
+    sentHands.delete(id);
+    publish();
+    sendHands();
+  }
+
+  function pause() {
+    if (disposed || !game || paused || game.phase === "final") return;
+    paused = true;
+    pausedPhase = game.phase;
+    pausedRemainingMs =
+      advanceDeadline === null
+        ? null
+        : Math.max(0, advanceDeadline - Date.now());
+    advanceDeadline = null;
+    publish();
+  }
+
+  function resume() {
+    if (disposed || !game || !paused) return;
+    // Quien sigue desconectado al reanudar queda eliminado.
+    let next = game;
+    for (const seat of game.seats) {
+      if (!seat.alive || seat.id === playerId || connected.has(seat.id))
+        continue;
+      const result = eliminate(next, seat.id);
+      if (result.error) continue;
+      next = result.state;
+      removed.add(seat.id);
+    }
+    paused = false;
+    const remaining = pausedRemainingMs;
+    pausedRemainingMs = null;
+    game = next;
+    armAdvance();
+    // Si la fase no cambió, la cuenta atrás sigue donde se quedó.
+    if (
+      remaining !== null &&
+      advanceDeadline !== null &&
+      next.phase === pausedPhase
+    ) {
+      advanceDeadline = Date.now() + remaining;
+    }
+    pausedPhase = null;
+    publish();
+    sendHands();
+  }
+
+  function eliminatePlayer(id: string) {
+    if (disposed || !game || id === playerId) return;
+    const seat = game.seats.find((s) => s.id === id);
+    // Solo se elimina a quien está desconectado.
+    if (!seat?.alive || connected.has(id)) return;
+    const result = eliminate(game, id);
+    if (result.error) return;
+    removed.add(id);
+    commit(result.state);
+  }
+
   channel.on("broadcast", { event: EVENT_CLIENT }, ({ payload }) => {
     if (!isClientMessage(payload)) return;
     if (payload.kind === "join") {
       addPlayer(payload.playerId, payload.name, true);
     } else if (payload.kind === "leave") {
-      removePlayer(payload.playerId);
+      handleDisconnect(payload.playerId);
+    } else if (payload.kind === "rejoin") {
+      handleRejoin(payload.playerId);
     } else if (payload.kind === "action") {
       handleAction(payload.playerId, payload.action);
     }
@@ -317,7 +452,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   channel.on("presence", { event: "leave" }, ({ leftPresences }) => {
     for (const presence of leftPresences) {
       const { playerId: id } = presence as { playerId?: unknown };
-      if (typeof id === "string") removePlayer(id);
+      if (typeof id === "string") scheduleLeaveCheck(id);
     }
   });
 
@@ -346,6 +481,8 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     if (disposed) return;
     disposed = true;
     stopTimers();
+    for (const timer of leaveTimers.values()) clearTimeout(timer);
+    leaveTimers.clear();
     await Promise.all([
       supabase.removeChannel(channel),
       ...[...handLinks.values()].map((link) =>
@@ -369,13 +506,20 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         players.map((p) => p.playerId),
         Math.random,
       );
+      for (const p of players) {
+        if (p.playerId !== playerId) connected.add(p.playerId);
+      }
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
       // Se suscriben ya los canales de mano para que estén listos al repartir.
       for (const p of players)
         if (p.playerId !== playerId) handLink(p.playerId);
       advanceTimer = setInterval(() => {
-        if (advanceDeadline !== null && Date.now() >= advanceDeadline) {
+        if (
+          !paused &&
+          advanceDeadline !== null &&
+          Date.now() >= advanceDeadline
+        ) {
           advanceGame();
         }
       }, ADVANCE_TICK_MS);
@@ -389,6 +533,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     continueGame() {
       advanceGame();
     },
+    pause,
+    resume,
+    eliminatePlayer,
     async close() {
       try {
         await setStatus(code, "closed");

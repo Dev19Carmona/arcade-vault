@@ -27,6 +27,8 @@ export interface EnteredRoom {
   playerId: string;
   name: string;
   isHost: boolean;
+  hostId?: string; // id del anfitrión, para detectar si se cae (solo jugadores)
+  rejoin?: boolean; // vuelve a una partida ya empezada en vez de entrar a la sala
 }
 
 const REFRESH_MS = 5000;
@@ -84,10 +86,10 @@ export function Lobby({
     };
   }, [loadRooms]);
 
-  function enter(roomCode: string, isHost: boolean) {
+  function enter(roomCode: string, isHost: boolean, hostId?: string) {
     writeAlias(name);
     saveSession({ playerId, code: roomCode });
-    onEnter({ code: roomCode, playerId, name, isHost });
+    onEnter({ code: roomCode, playerId, name, isHost, hostId });
   }
 
   async function create() {
@@ -125,7 +127,7 @@ export function Lobby({
         void loadRooms();
         return;
       }
-      enter(room.code, false);
+      enter(room.code, false, room.host_id);
     } catch {
       setError(MESSAGES.network);
     } finally {

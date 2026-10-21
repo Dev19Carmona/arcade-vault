@@ -49,13 +49,23 @@ export interface OnlineView {
   selWidow: number | null;
   pointer: { x: number; y: number }; // coordenadas lógicas
   secondsLeft: number | null; // cuenta atrás hasta que avanza solo el sorteo o el duelo
+  notice: "running" | "reconnecting" | null; // aviso de mi conexión
 }
 
 export type OnlineButtonId =
-  "swap5" | "swap1" | "pass" | "call" | "continue" | "leave";
+  | "swap5"
+  | "swap1"
+  | "pass"
+  | "call"
+  | "continue"
+  | "pause"
+  | "resume"
+  | "eliminate"
+  | "leave";
 
 export interface OnlineButton {
   id: OnlineButtonId;
+  target?: string; // a quién se aplica (ELIMINAR)
   label: string;
   color: string;
   disabled: boolean;
@@ -67,6 +77,7 @@ const BANNER_X = 184;
 const BANNER_W = W - 2 * BANNER_X;
 const BANNER_Y = 360;
 const LEAVE_RECT: Rect = { x: W - 100, y: 4, w: 92, h: 22 };
+const PAUSE_RECT: Rect = { x: 8, y: 4, w: 92, h: 22 };
 
 // --- Geometría compartida con el clic ---
 
@@ -99,8 +110,24 @@ export function isMyTurn(
   view: Pick<OnlineView, "table" | "playerId">,
 ): boolean {
   return (
-    view.table.phase === "turn" && view.table.turnPlayerId === view.playerId
+    view.table.phase === "turn" &&
+    !view.table.paused &&
+    view.table.turnPlayerId === view.playerId &&
+    seatOf(view.table, view.playerId)?.connected !== false
   );
+}
+
+// Panel de un rival en la mesa, visto desde `playerId`.
+function seatRect(
+  table: PublicTable,
+  playerId: string,
+  id: string,
+): Rect | null {
+  const count = table.seats.length;
+  const localIndex = table.seats.findIndex((s) => s.playerId === playerId);
+  const index = table.seats.findIndex((s) => s.playerId === id);
+  if (localIndex < 0 || index < 0 || index === localIndex) return null;
+  return opponentRects(count)[relativeSeat(index, localIndex, count) - 1];
 }
 
 // Gana el sorteo la carta más alta entre los jugadores vivos.
@@ -119,6 +146,10 @@ function drawStarter(table: PublicTable): PublicSeat | undefined {
 export function statusLine(table: PublicTable, playerId: string): string {
   const me = seatOf(table, playerId);
   if (table.phase === "final") return "Fin de la partida.";
+  if (table.paused) return "Partida en pausa.";
+  if (me && !me.connected) {
+    return "Estás desconectado. La partida sigue en curso; espera a que el anfitrión la pause.";
+  }
   if (table.phase === "draw") return "Sorteo inicial.";
   if (table.phase === "showdown") return "Duelo: se enseñan las manos.";
   if (me && !me.alive) {
@@ -174,6 +205,7 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
     }
   } else if (
     view.isHost &&
+    !table.paused &&
     (table.phase === "draw" || table.phase === "showdown")
   ) {
     main.push({
@@ -185,8 +217,41 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
   }
 
   const rects = buttonRowRects(main.length, BUTTON_Y);
+  const extra: OnlineButton[] = [];
+
+  // Controles del anfitrión: pausa con la partida en marcha y ELIMINAR a los desconectados.
+  const inProgress =
+    table.phase === "draw" ||
+    table.phase === "turn" ||
+    table.phase === "showdown";
+  if (view.isHost && inProgress) {
+    extra.push({
+      id: table.paused ? "resume" : "pause",
+      label: table.paused ? "REANUDAR" : "PAUSAR",
+      color: table.paused ? COLOR_GREEN : COLOR_YELLOW,
+      disabled: false,
+      rect: PAUSE_RECT,
+    });
+  }
+  if (view.isHost && inProgress) {
+    for (const seat of table.seats) {
+      if (seat.connected || !seat.alive) continue;
+      const r = seatRect(table, view.playerId, seat.playerId);
+      if (!r) continue;
+      extra.push({
+        id: "eliminate",
+        target: seat.playerId,
+        label: "ELIMINAR",
+        color: COLOR_MAGENTA,
+        disabled: false,
+        rect: { x: r.x + r.w / 2 - 38, y: r.y + 44, w: 76, h: 20 },
+      });
+    }
+  }
+
   return [
     ...main.map((b, i) => ({ ...b, rect: rects[i] })),
+    ...extra,
     {
       id: "leave",
       label: "SALIR",
@@ -310,6 +375,23 @@ function drawSmallButton(
     color: hover ? COLOR_BLACK_SUIT : b.color,
   });
   ctx.restore();
+}
+
+// Atenúa la mesa y pone un mensaje en el centro.
+function drawVeil(
+  ctx: CanvasRenderingContext2D,
+  lines: readonly string[],
+  color: string,
+) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, 0, W, 600);
+  ctx.restore();
+  drawBannerBox(
+    ctx,
+    lines.filter((line, i) => i < 2 || line !== ""),
+    color,
+  );
 }
 
 function drawBannerBox(
@@ -486,7 +568,8 @@ export function drawOnlineTable(
   });
 
   // Estado y mensajes.
-  if (phase === "turn") {
+  const veiled = table.paused || (me && !me.connected && phase !== "final");
+  if (phase === "turn" && !veiled) {
     drawText(
       ctx,
       fitText(ctx, statusLine(table, playerId), BANNER_W, 13),
@@ -498,11 +581,46 @@ export function drawOnlineTable(
   const banner = bannerFor(view);
   if (banner) drawBannerBox(ctx, banner.lines, banner.color);
 
+  // Pausa o desconexión: velo sobre la mesa; los botones se dibujan encima.
+  if (table.paused) {
+    drawVeil(
+      ctx,
+      [
+        "PARTIDA EN PAUSA",
+        view.isHost
+          ? "Los desconectados pueden volver a su asiento."
+          : "El anfitrión ha pausado la partida.",
+        view.isHost ? "Al reanudar, quien siga fuera queda eliminado." : "",
+      ],
+      COLOR_YELLOW,
+    );
+  } else if (me && !me.connected && phase !== "final") {
+    drawVeil(
+      ctx,
+      [
+        "ESTÁS DESCONECTADO",
+        view.notice === "reconnecting"
+          ? "Reconectando con la sala…"
+          : "La partida sigue en curso;",
+        view.notice === "reconnecting"
+          ? ""
+          : "espera a que el anfitrión la pause.",
+      ],
+      COLOR_MAGENTA,
+    );
+  }
+
   // Botones.
   for (const b of onlineButtons(view)) {
     const hover = pointInRect(view.pointer.x, view.pointer.y, b.rect);
-    if (b.id === "leave") drawSmallButton(ctx, b, hover);
-    else {
+    if (
+      b.id === "leave" ||
+      b.id === "pause" ||
+      b.id === "resume" ||
+      b.id === "eliminate"
+    ) {
+      drawSmallButton(ctx, b, hover);
+    } else {
       drawButton(ctx, b.rect, b.label, {
         color: b.color,
         disabled: b.disabled,

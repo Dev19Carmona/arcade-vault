@@ -50,7 +50,8 @@ export interface PrivateHand {
 }
 
 // Host → todos: el anfitrión no admite a este jugador.
-export type JoinRejection = "full" | "started";
+// `running` no es definitivo: la partida sigue en marcha y se puede volver cuando el anfitrión la pause.
+export type JoinRejection = "full" | "started" | "running" | "removed";
 export interface RejectMessage {
   playerId: string;
   reason: JoinRejection;
@@ -83,7 +84,10 @@ export function isRejectMessage(value: unknown): value is RejectMessage {
   const m = value as Partial<RejectMessage>;
   return (
     typeof m.playerId === "string" &&
-    (m.reason === "full" || m.reason === "started")
+    (m.reason === "full" ||
+      m.reason === "started" ||
+      m.reason === "running" ||
+      m.reason === "removed")
   );
 }
 

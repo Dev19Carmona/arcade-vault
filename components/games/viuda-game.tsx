@@ -1,10 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ViudaCanvas } from "@/components/games/viuda-canvas";
 import { OnlineRoom } from "@/components/games/viuda-online/online-room";
 import { Lobby, type EnteredRoom } from "@/components/games/viuda-online/lobby";
 import type { GameCanvasProps } from "@/lib/games/types";
+import {
+  clearSession,
+  loadSession,
+  readAlias,
+} from "@/lib/games/viuda/online/identity";
+import { findRoom, setStatus } from "@/lib/supabase/rooms";
 
 type View =
   | { name: "select" }
@@ -15,6 +21,45 @@ type View =
 // Entrada de Viuda en el registro: elige entre VS CPU (el canvas de siempre) y el modo en línea.
 export function ViudaGame(props: GameCanvasProps) {
   const [view, setView] = useState<View>({ name: "select" });
+
+  // Si la pestaña se recargó en plena partida, se vuelve al asiento reservado.
+  useEffect(() => {
+    const session = loadSession();
+    if (!session) return;
+    let cancelled = false;
+    findRoom(session.code)
+      .then((room) => {
+        if (cancelled) return;
+        if (room?.status === "playing" && room.host_id !== session.playerId) {
+          setView((current) =>
+            current.name === "select"
+              ? {
+                  name: "room",
+                  room: {
+                    code: session.code,
+                    playerId: session.playerId,
+                    name: readAlias() || "JUGADOR",
+                    isHost: false,
+                    hostId: room.host_id,
+                    rejoin: true,
+                  },
+                }
+              : current,
+          );
+          return;
+        }
+        // Sala en espera, cerrada o propia: no hay asiento al que volver. Si era la
+        // del anfitrión que recargó, la sala se cierra (no hay migración de anfitrión).
+        if (room?.host_id === session.playerId && room.status !== "closed") {
+          void setStatus(session.code, "closed").catch(() => {});
+        }
+        clearSession();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (view.name === "cpu") return <ViudaCanvas {...props} />;
 
@@ -29,10 +74,7 @@ export function ViudaGame(props: GameCanvasProps) {
 
   if (view.name === "room") {
     return (
-      <OnlineRoom
-        room={view.room}
-        onLeave={() => setView({ name: "lobby" })}
-      />
+      <OnlineRoom room={view.room} onLeave={() => setView({ name: "lobby" })} />
     );
   }
 

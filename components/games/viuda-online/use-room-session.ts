@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createClientSession,
   type ClientSession,
+  type RoomNotice,
 } from "@/lib/games/viuda/online/client";
 import {
   createHostSession,
@@ -18,7 +19,8 @@ import type {
 import type { EnteredRoom } from "@/components/games/viuda-online/lobby";
 
 export type RoomFailure =
-  | { kind: "rejected"; reason: JoinRejection }
+  | { kind: "rejected"; reason: Exclude<JoinRejection, "running"> }
+  | { kind: "closed" } // el anfitrión se desconectó
   | { kind: "error"; message: string };
 
 type Session = HostSession | ClientSession;
@@ -28,6 +30,7 @@ export function useRoomSession(room: EnteredRoom) {
   const [table, setTable] = useState<PublicTable | null>(null);
   const [hand, setHand] = useState<PrivateHand | null>(null);
   const [failure, setFailure] = useState<RoomFailure | null>(null);
+  const [notice, setNotice] = useState<RoomNotice | null>(null);
   const sessionRef = useRef<Session | null>(null);
 
   useEffect(() => {
@@ -49,7 +52,11 @@ export function useRoomSession(room: EnteredRoom) {
         ? createHostSession(base)
         : createClientSession({
             ...base,
+            hostId: room.hostId ?? null,
+            rejoin: room.rejoin ?? false,
             onRejected: (reason) => setFailure({ kind: "rejected", reason }),
+            onNotice: setNotice,
+            onHostLeft: () => setFailure({ kind: "closed" }),
           });
       sessionRef.current = session;
     }, 0);
@@ -72,11 +79,18 @@ export function useRoomSession(room: EnteredRoom) {
     sessionRef.current?.act(action);
   }, []);
 
-  // CONTINUAR en el sorteo y el duelo (solo el anfitrión).
-  const continueGame = useCallback(() => {
+  // Controles del anfitrión: CONTINUAR, PAUSAR, REANUDAR y ELIMINAR.
+  const host = useCallback((run: (session: HostSession) => void) => {
     const session = sessionRef.current;
-    if (session && "continueGame" in session) session.continueGame();
+    if (session && "start" in session) run(session);
   }, []);
+  const continueGame = useCallback(() => host((s) => s.continueGame()), [host]);
+  const pause = useCallback(() => host((s) => s.pause()), [host]);
+  const resume = useCallback(() => host((s) => s.resume()), [host]);
+  const eliminatePlayer = useCallback(
+    (id: string) => host((s) => s.eliminatePlayer(id)),
+    [host],
+  );
 
   // SALIR: el anfitrión cierra la sala; un jugador avisa y se va.
   const leave = useCallback(() => {
@@ -86,5 +100,17 @@ export function useRoomSession(room: EnteredRoom) {
     void ("close" in session ? session.close() : session.leave());
   }, []);
 
-  return { table, hand, failure, start, act, continueGame, leave };
+  return {
+    table,
+    hand,
+    failure,
+    notice,
+    start,
+    act,
+    continueGame,
+    pause,
+    resume,
+    eliminatePlayer,
+    leave,
+  };
 }

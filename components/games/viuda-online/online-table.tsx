@@ -47,8 +47,12 @@ interface Props {
   hand: PrivateHand | null;
   playerId: string;
   isHost: boolean;
+  notice: "running" | "reconnecting" | null;
   onAction: (action: OnlineAction) => void;
   onContinue: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onEliminate: (playerId: string) => void;
   onLeave: () => void;
 }
 
@@ -92,8 +96,9 @@ export function OnlineTable(props: Props) {
         : new Set();
     if (table.seq !== lastSeq.current) {
       lastSeq.current = table.seq;
+      // En pausa la cuenta atrás queda congelada en lo que envía el anfitrión.
       deadline.current =
-        table.autoAdvanceIn === null
+        table.autoAdvanceIn === null || table.paused
           ? null
           : performance.now() + table.autoAdvanceIn * 1000;
     }
@@ -113,7 +118,9 @@ export function OnlineTable(props: Props) {
       const p = live.current;
       const left =
         deadline.current === null
-          ? null
+          ? p.table.paused
+            ? p.table.autoAdvanceIn
+            : null
           : Math.max(
               0,
               Math.ceil((deadline.current - performance.now()) / 1000),
@@ -128,17 +135,22 @@ export function OnlineTable(props: Props) {
         selWidow: sel.current.widow,
         pointer: pointer.current,
         secondsLeft: left,
+        notice: p.notice,
       };
     };
 
-    const activate = (id: OnlineButtonId) => {
+    const activate = (id: OnlineButtonId, target?: string) => {
       const p = live.current;
       const view = currentView();
       const mine = isMyTurn(view);
       const clear = () => (sel.current = { own: null, widow: null });
       if (id === "leave") p.onLeave();
       else if (id === "continue") p.onContinue();
-      else if (!mine) return;
+      else if (id === "pause") p.onPause();
+      else if (id === "resume") p.onResume();
+      else if (id === "eliminate") {
+        if (target) p.onEliminate(target);
+      } else if (!mine) return;
       else if (id === "pass") p.onAction({ type: "pass" });
       else if (id === "call") {
         if (p.table.callerId === null) p.onAction({ type: "call" });
@@ -168,7 +180,7 @@ export function OnlineTable(props: Props) {
       const view = currentView();
       const button = onlineButtons(view).find((b) => pointInRect(x, y, b.rect));
       if (button) {
-        if (!button.disabled) activate(button.id);
+        if (!button.disabled) activate(button.id, button.target);
         return;
       }
       // Con la viuda abierta se eligen una carta propia y una de la viuda.
@@ -194,7 +206,11 @@ export function OnlineTable(props: Props) {
       const view = currentView();
       const { table: t, isHost } = view;
       if (CONTINUE_KEYS.includes(e.code)) {
-        if (isHost && (t.phase === "draw" || t.phase === "showdown")) {
+        if (
+          isHost &&
+          !t.paused &&
+          (t.phase === "draw" || t.phase === "showdown")
+        ) {
           activate("continue");
         }
         return;
