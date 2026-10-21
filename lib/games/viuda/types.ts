@@ -42,6 +42,22 @@ export interface HandValue {
   tiebreak: number[];
 }
 
+// Lo que acaba de ocurrir en la mesa; solo informa a quien anima, no interviene en las reglas.
+// `n` crece de uno en uno en toda la partida; `seat` es el índice de asiento.
+export type GameEvent =
+  | { n: number; kind: "deal" }
+  | { n: number; kind: "pass"; seat: number }
+  | { n: number; kind: "call"; seat: number }
+  | { n: number; kind: "swap5"; seat: number }
+  | {
+      n: number;
+      kind: "swap1";
+      seat: number;
+      handIndex: number;
+      widowIndex: number;
+    }
+  | { n: number; kind: "showdown" };
+
 export interface Rect {
   x: number;
   y: number;
