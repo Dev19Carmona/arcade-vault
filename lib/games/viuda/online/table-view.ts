@@ -36,7 +36,14 @@ import {
   drawLastLapBorder,
   drawTurnPulse,
 } from "../fx/draw";
+import { drawDragIntent, resolveDragIntent } from "../drag-preview";
 import { visualIndices, type HandDrag, type HandOrder } from "../hand-order";
+import {
+  drawGroupFrame,
+  drawSwapFloating,
+  resolveSwapIntent,
+  type SwapDrag,
+} from "../swap-drag";
 import type { Card, Rect } from "../types";
 import { cardLabel, compareDrawCards } from "../utils";
 import {
@@ -64,8 +71,6 @@ export interface OnlineView {
   playerId: string; // yo
   isHost: boolean;
   losers: ReadonlySet<string>; // quién pierde vida en el duelo
-  selOwn: number | null;
-  selWidow: number | null;
   pointer: { x: number; y: number }; // coordenadas lógicas
   secondsLeft: number | null; // cuenta atrás hasta que avanza solo el sorteo o el duelo
   notice: "running" | "reconnecting" | null; // aviso de mi conexión
@@ -74,11 +79,11 @@ export interface OnlineView {
   locked: boolean; // hay animación en curso o pendiente: mi turno y CONTINUAR esperan
   order: HandOrder; // orden visual de mi mano (solo local)
   drag: HandDrag; // arrastre de cartas en curso, si lo hay
+  swap: SwapDrag; // arrastre de una carta de la viuda o de un marco, si lo hay
 }
 
 export type OnlineButtonId =
   | "swap5"
-  | "swap1"
   | "pass"
   | "call"
   | "continue"
@@ -128,6 +133,17 @@ export function isMyTurn(
   );
 }
 
+// Por qué no se pueden cambiar cartas soltando sobre la viuda ahora mismo (null si se puede).
+export function dragBlockedReason(
+  view: Pick<OnlineView, "table" | "playerId" | "locked">,
+): string | null {
+  if (view.table.paused) return "PARTIDA EN PAUSA";
+  if (!isMyTurn({ table: view.table, playerId: view.playerId })) {
+    return "NO ES TU TURNO";
+  }
+  return view.locked ? "ESPERA UN MOMENTO" : null;
+}
+
 // Panel de un rival en la mesa, visto desde `playerId`.
 function seatRect(
   table: PublicTable,
@@ -172,8 +188,8 @@ export function statusLine(table: PublicTable, playerId: string): string {
       return `${nameOf(table, table.callerId)} llamó · última vuelta`;
     }
     return table.widowOpen
-      ? "TU TURNO · cambia 5, o 1 tuya por 1 de la viuda"
-      : "TU TURNO · viuda cerrada: cambia 5, pasa o llama";
+      ? "TU TURNO · arrastra una carta sobre otra, o un marco gris para cambiar las 5"
+      : "TU TURNO · arrastra tu marco gris a la viuda para cambiar las 5, o pasa o llama";
   }
   return `Turno de ${nameOf(table, table.turnPlayerId)}${lastLap ? " (última vuelta)" : ""}`;
 }
@@ -184,37 +200,9 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
   const { table } = view;
   const main: Omit<OnlineButton, "rect">[] = [];
 
-  if (isMyTurn(view)) {
-    main.push({
-      id: "swap5",
-      label: "CAMBIAR 5 [C]",
-      color: COLOR_CYAN,
-      disabled: false,
-    });
-    if (table.widowOpen) {
-      main.push({
-        id: "swap1",
-        label: "CAMBIAR 1 [X]",
-        color: COLOR_CYAN,
-        disabled: view.selOwn === null || view.selWidow === null,
-      });
-    }
-    main.push({
-      id: "pass",
-      label: "PASO [P]",
-      color: COLOR_YELLOW,
-      disabled: false,
-    });
-    // Tras un "llamo" la última vuelta es solo para cambiar o pasar.
-    if (table.callerId === null) {
-      main.push({
-        id: "call",
-        label: "LLAMO [L]",
-        color: COLOR_MAGENTA,
-        disabled: false,
-      });
-    }
-  } else if (
+  // Durante el turno no hay botones en el canvas: se cambia arrastrando sobre la viuda y
+  // PASO y LLAMO están en el chat (o son teclas).
+  if (
     view.isHost &&
     !view.locked &&
     !table.paused &&
@@ -594,12 +582,18 @@ function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
       align: "left",
       color: position === 1 ? COLOR_YELLOW : COLOR_DIM,
     });
-    drawText(ctx, fitText(ctx, seat.name, box.w - 150, 14, mine), box.x + 64, y, {
-      size: 14,
-      bold: mine,
-      align: "left",
-      color: mine ? COLOR_CYAN : COLOR_INK,
-    });
+    drawText(
+      ctx,
+      fitText(ctx, seat.name, box.w - 150, 14, mine),
+      box.x + 64,
+      y,
+      {
+        size: 14,
+        bold: mine,
+        align: "left",
+        color: mine ? COLOR_CYAN : COLOR_INK,
+      },
+    );
     if (mine) {
       drawText(ctx, "TÚ", box.x + box.w - 20, y, {
         size: 11,
@@ -700,14 +694,21 @@ export function drawOnlineTable(
     bold: true,
     color: COLOR_DIM,
   });
+  const swapping = view.swap.active();
+  // Los marcos solo se ven en mi turno: son lo que se agarra para cambiar las 5.
+  const showFrames = phase === "turn" && myTurn;
   if (phase !== "draw" && table.widow.length > 0) {
+    if (showFrames) drawGroupFrame(ctx, "widow", 0, 0, true);
     drawCardRow(
       ctx,
       table.widow,
       widowCardRects(),
       table.widow.map((_, i) => ({
-        selected: table.widowOpen && view.selWidow === i,
-        hidden: tl.hidden.has(`widow:${i}`) || waiting,
+        hidden:
+          tl.hidden.has(`widow:${i}`) ||
+          waiting ||
+          (swapping?.source.kind === "widow-card" &&
+            swapping.source.index === i),
       })),
     );
   }
@@ -738,7 +739,6 @@ export function drawOnlineTable(
       x: r.x + (offsets[v] ?? 0) * slotStep,
     }));
     const styles: CardStyle[] = cards.map((card, v) => ({
-      selected: view.selOwn !== null && indices?.[v] === view.selOwn,
       hidden: tl.hidden.has(`own:${v}`) || waiting || floating?.slot === v,
       highlight:
         phase === "showdown" && revealed && view.losers.has(playerId)
@@ -749,8 +749,36 @@ export function drawOnlineTable(
             ? COLOR_CYAN
             : undefined,
     }));
+    if (showFrames) drawGroupFrame(ctx, "own", 0, 0, true);
     drawCardRow(ctx, cards, rects, styles);
     const lifted = floating ? cards[floating.slot] : null;
+    // Sobre la viuda: qué cambiaría soltar ahora.
+    const intent =
+      floating?.dragging && lifted
+        ? resolveDragIntent({
+            target: view.drag.target(),
+            card: lifted,
+            handVisual: floating?.slot ?? 0,
+            widow: table.widow,
+            blocked: dragBlockedReason(view),
+            widowOpen: !!table.widowOpen,
+          })
+        : null;
+    if (intent) drawDragIntent(ctx, intent);
+    if (swapping && hand) {
+      const own = indices ? indices.map((k) => hand.hand[k]) : [];
+      const widow = table.widowOpen ? table.widow : table.widow.map(() => null);
+      const swapIntent = resolveSwapIntent({
+        source: swapping.source,
+        x: view.pointer.x,
+        y: view.pointer.y,
+        ownCards: own,
+        widow,
+        blocked: dragBlockedReason(view),
+      });
+      if (swapIntent) drawDragIntent(ctx, swapIntent);
+      drawSwapFloating(ctx, swapping, { own, widow });
+    }
     if (floating && lifted) {
       drawCardPosed(
         ctx,

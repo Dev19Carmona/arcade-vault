@@ -60,6 +60,13 @@ import {
   type SwapLayout,
 } from "./fx/scenes";
 import { createTimeline } from "./fx/timeline";
+import { drawDragIntent, resolveDragIntent } from "./drag-preview";
+import {
+  createSwapDrag,
+  drawGroupFrame,
+  drawSwapFloating,
+  resolveSwapIntent,
+} from "./swap-drag";
 import {
   cardKey,
   createHandDrag,
@@ -78,6 +85,7 @@ import {
   panelHeartAnchor,
   tableLabels,
   widowCardRects,
+  widowTargetAt,
 } from "./online/geometry";
 import { opponentRects, relativeSeat } from "./online/layout";
 import type { OnlineAction } from "./online/protocol";
@@ -98,7 +106,7 @@ import type {
 } from "./types";
 import { cardLabel, evaluateHand, finalScore } from "./utils";
 
-type ButtonId = "continue" | "swap5" | "swap1" | "pass" | "call";
+type ButtonId = "continue" | "pass" | "call";
 
 interface ButtonView {
   id: ButtonId;
@@ -107,8 +115,6 @@ interface ButtonView {
   disabled: boolean;
 }
 
-const OWN_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5"];
-const WIDOW_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR", "KeyT"];
 const CONTINUE_KEYS = ["Space", "Enter", "NumpadEnter"];
 
 // Valor continuo de una mano para decidir de las CPU: categoría + carta principal.
@@ -137,8 +143,6 @@ export function createViudaEngine({
   // la selección de cartas, el reloj de las CPU, el puntaje y el dibujo.
   let state: RulesState = newGame();
   let thinkTimer = 0;
-  let selOwn: number | null = null;
-  let selWidow: number | null = null;
   let score = 0;
   let gameOverEmitted = false;
   let pointer = { x: -1, y: -1 };
@@ -151,6 +155,7 @@ export function createViudaEngine({
   let prevOrder = order;
   let prevHand: readonly Card[] = state.seats[localSeat].hand;
   const drag = createHandDrag(HAND_SIZE);
+  const swap = createSwapDrag();
 
   // Dónde están las cartas de un asiento y las de la viuda, para animar los cambios.
   // Los huecos de mi mano se numeran por posición visual: es lo que se dibuja.
@@ -351,6 +356,10 @@ export function createViudaEngine({
       lives: state.seats[localSeat]?.lives ?? LIVES,
       round: state.round,
       rivals: state.seats.filter((s, i) => i !== localSeat && s.alive).length,
+      canPass: humanTurn(),
+      // Tras un "llamo" la última vuelta es solo para cambiar o pasar.
+      canCall: humanTurn() && state.caller === null,
+      inTurn: state.phase === "turn",
     };
   }
 
@@ -361,7 +370,10 @@ export function createViudaEngine({
       last.score === snap.score &&
       last.lives === snap.lives &&
       last.round === snap.round &&
-      last.rivals === snap.rivals
+      last.rivals === snap.rivals &&
+      last.canPass === snap.canPass &&
+      last.canCall === snap.canCall &&
+      last.inTurn === snap.inTurn
     )
       return;
     last = snap;
@@ -391,12 +403,11 @@ export function createViudaEngine({
     prevOrder = order;
     order = dealt ? initialOrder(myHand) : reconcile(order, myHand);
     if (dealt || !sameHand) drag.cancel();
+    swap.cancel();
     playEvents(prev, state);
     prevHand = myHand;
     // La marca del llamador dura hasta que se muestran las manos.
     if (state.caller === null || state.phase !== "turn") fx.clearSticky();
-    selOwn = null;
-    selWidow = null;
     if (state.phase === "turn") scheduleThink();
     if (state.phase === "final") {
       const me = state.seats[localSeat];
@@ -469,16 +480,6 @@ export function createViudaEngine({
     if (humanTurn()) act(localSeat, { type: "swap5" });
   }
 
-  function humanSwapOne() {
-    if (humanTurn() && selOwn !== null && selWidow !== null) {
-      act(localSeat, {
-        type: "swap1",
-        handIndex: selOwn,
-        widowIndex: selWidow,
-      });
-    }
-  }
-
   function activate(id: ButtonId) {
     if (id === "continue") {
       if (state.phase === "draw" || state.phase === "showdown") {
@@ -490,9 +491,7 @@ export function createViudaEngine({
       }
     } else if (humanTurn()) {
       if (id === "pass") act(localSeat, { type: "pass" });
-      else if (id === "call") act(localSeat, { type: "call" });
-      else if (id === "swap5") humanSwapAll();
-      else humanSwapOne();
+      else act(localSeat, { type: "call" });
     }
   }
 
@@ -534,38 +533,9 @@ export function createViudaEngine({
         },
       ];
     }
-    if (!humanTurn()) return [];
-    const list: ButtonView[] = [];
-    list.push({
-      id: "swap5",
-      label: "CAMBIAR 5 [C]",
-      color: COLOR_CYAN,
-      disabled: false,
-    });
-    if (state.widowOpen) {
-      list.push({
-        id: "swap1",
-        label: "CAMBIAR 1 [X]",
-        color: COLOR_CYAN,
-        disabled: selOwn === null || selWidow === null,
-      });
-    }
-    list.push({
-      id: "pass",
-      label: "PASO [P]",
-      color: COLOR_YELLOW,
-      disabled: false,
-    });
-    // Tras un "llamo" la última vuelta es solo para cambiar o pasar.
-    if (state.caller === null) {
-      list.push({
-        id: "call",
-        label: "LLAMO [L]",
-        color: COLOR_MAGENTA,
-        disabled: false,
-      });
-    }
-    return list;
+    // Durante el turno no hay botones en el canvas: se cambia arrastrando sobre la viuda y
+    // PASO y LLAMO son botones HTML de `ViudaCanvas` (o las teclas).
+    return [];
   }
 
   const ownRects = ownCardRects;
@@ -591,21 +561,6 @@ export function createViudaEngine({
         return;
       }
     }
-    // Con la viuda abierta se eligen una carta propia y una de la viuda.
-    if (humanTurn() && state.widowOpen) {
-      // La selección guarda el índice de las reglas, así que sigue a la carta aunque se mueva.
-      const hand = state.seats[localSeat].hand;
-      const indices = visualIndices(order, hand);
-      ownRects().forEach((r, v) => {
-        if (pointInRect(x, y, r)) {
-          const k = indices[v];
-          selOwn = selOwn === k ? null : k;
-        }
-      });
-      widowRects().forEach((r, i) => {
-        if (pointInRect(x, y, r)) selWidow = selWidow === i ? null : i;
-      });
-    }
     emit();
   }
 
@@ -617,17 +572,6 @@ export function createViudaEngine({
       if (code === "KeyP") activate("pass");
       else if (code === "KeyL") activate("call");
       else if (code === "KeyC") humanSwapAll();
-      else if (code === "KeyX") humanSwapOne();
-      else if (state.widowOpen) {
-        const own = OWN_KEYS.indexOf(code);
-        const wid = WIDOW_KEYS.indexOf(code);
-        if (own >= 0) {
-          // Las teclas 1–5 son posiciones visuales, de izquierda a derecha.
-          const k = visualToRules(order, state.seats[localSeat].hand, own);
-          selOwn = selOwn === k ? null : k;
-        }
-        if (wid >= 0) selWidow = selWidow === wid ? null : wid;
-      }
     }
     emit();
   }
@@ -642,10 +586,20 @@ export function createViudaEngine({
     );
   }
 
+  // Por qué no se puede cambiar cartas soltando sobre la viuda ahora mismo (null si se puede).
+  function dragBlocked(): string | null {
+    if (!myTurn()) return "NO ES TU TURNO";
+    if (fx.isLocked()) return "ESPERA UN MOMENTO";
+    return null;
+  }
+
   function setPointer(x: number, y: number) {
     pointer = { x, y };
     // Al salir del canvas (-1) el arrastre, si lo hay, conserva su última posición.
-    if (x >= 0) drag.move(x, y);
+    if (x >= 0) {
+      drag.move(x, y, widowTargetAt(x, y, state.widowOpen));
+      swap.move(x, y);
+    }
   }
 
   function pointerDown(x: number, y: number) {
@@ -658,12 +612,75 @@ export function createViudaEngine({
       ownRects(HAND_SIZE),
       (slot) => !fx.hidden.has(`own:${slot}`),
     );
+    // Si no hay carta propia bajo el puntero: una carta de la viuda o un marco.
+    if (!drag.busy()) {
+      swap.down(x, y, {
+        canGrab: state.phase === "turn" && !fx.isLocked(),
+        widowOpen: state.widowOpen,
+      });
+    }
+  }
+
+  // Mi mano y la viuda tal como se ven, para nombrar y dibujar lo que se arrastra.
+  function swapCards() {
+    const hand = state.seats[localSeat].hand;
+    return {
+      own: visualIndices(order, hand).map((k) => hand[k]),
+      widow: state.widow.map((c) => (state.widowOpen ? c : null)),
+    };
   }
 
   function pointerUp(x: number, y: number) {
     setPointer(x, y);
     const release = drag.up();
+    if (!release) {
+      const dropped = swap.up();
+      if (dropped?.kind === "drop") {
+        const cards = swapCards();
+        const intent = resolveSwapIntent({
+          source: dropped.source,
+          x: dropped.x,
+          y: dropped.y,
+          ownCards: cards.own,
+          widow: cards.widow,
+          blocked: dragBlocked(),
+        });
+        if (intent?.kind === "swap1") {
+          act(localSeat, {
+            type: "swap1",
+            handIndex: visualToRules(
+              order,
+              state.seats[localSeat].hand,
+              intent.handVisual,
+            ),
+            widowIndex: intent.widowIndex,
+          });
+        } else if (intent?.kind === "swap5") {
+          act(localSeat, { type: "swap5" });
+        }
+        emit();
+        return;
+      }
+    }
     if (release?.kind === "drop") {
+      const { target } = release;
+      if (target.kind === "widow-card" || target.kind === "widow-zone") {
+        // Soltar sobre una carta de la viuda es CAMBIAR 1; en el hueco no pasa nada (las 5
+        // se cambian con el botón CAMBIAR VIUDA, para que un arrastre no las cambie por error).
+        if (target.kind === "widow-card" && !dragBlocked()) {
+          act(localSeat, {
+            type: "swap1",
+            handIndex: visualToRules(
+              order,
+              state.seats[localSeat].hand,
+              release.from,
+            ),
+            widowIndex: target.widowIndex,
+          });
+        }
+        emit();
+        return;
+      }
       if (release.from !== release.to) {
         order = moveCard(order, release.from, release.to);
         sfx?.play("sort");
@@ -694,11 +711,11 @@ export function createViudaEngine({
     }
     if (myTurn()) {
       if (!state.widowOpen) {
-        return "TU TURNO · viuda cerrada: cambia las 5 cartas, pasa o llama";
+        return "TU TURNO · arrastra tu marco gris a la viuda para cambiar las 5, o pasa o llama";
       }
       return LAYOUT_MODE === "portrait"
-        ? "TU TURNO · cambia 5, o 1 tuya por 1 de la viuda"
-        : "TU TURNO · viuda abierta: cambia las 5, o elige 1 carta tuya y 1 de la viuda";
+        ? "TU TURNO · arrastra cartas, o un marco gris para las 5"
+        : "TU TURNO · arrastra una carta sobre otra, o un marco gris para cambiar las 5";
     }
     const lastLap =
       state.caller !== null ? " (última vuelta tras la llamada)" : "";
@@ -798,14 +815,20 @@ export function createViudaEngine({
       bold: true,
       color: COLOR_DIM,
     });
+    const swapping = swap.active();
+    // Los marcos solo se ven en mi turno: son lo que se agarra para cambiar las 5.
+    const showFrames = phase === "turn" && myTurn();
     if (phase !== "draw") {
+      if (showFrames) drawGroupFrame(ctx, "widow", 0, 0, true);
       drawCardRow(
         ctx,
         state.widow.map((c) => (state.widowOpen ? c : null)),
         widowRects(),
         state.widow.map((_, i) => ({
-          selected: state.widowOpen && selWidow === i,
-          hidden: fx.hidden.has(`widow:${i}`),
+          hidden:
+            fx.hidden.has(`widow:${i}`) ||
+            (swapping?.source.kind === "widow-card" &&
+              swapping.source.index === i),
         })),
       );
     }
@@ -829,14 +852,40 @@ export function createViudaEngine({
         x: r.x + (offsets[v] ?? 0) * slotStep,
       }));
       const styles: CardStyle[] = cards.map((_, v) => ({
-        selected: selOwn === indices[v],
         highlight:
           me.loser && phase === "showdown" && showdownRevealed()
             ? COLOR_MAGENTA
             : undefined,
         hidden: fx.hidden.has(`own:${v}`) || floating?.slot === v,
       }));
+      if (showFrames) drawGroupFrame(ctx, "own", 0, 0, true);
       drawCardRow(ctx, cards, rects, styles);
+      // Sobre la viuda: qué cambiaría soltar ahora.
+      const intent =
+        floating?.dragging && cards[floating.slot]
+          ? resolveDragIntent({
+              target: drag.target(),
+              card: cards[floating.slot],
+              handVisual: floating.slot,
+              widow: state.widow,
+              blocked: dragBlocked(),
+              widowOpen: state.widowOpen,
+            })
+          : null;
+      if (intent) drawDragIntent(ctx, intent);
+      if (swapping) {
+        const sc = swapCards();
+        const swapIntent = resolveSwapIntent({
+          source: swapping.source,
+          x: pointer.x,
+          y: pointer.y,
+          ownCards: sc.own,
+          widow: sc.widow,
+          blocked: dragBlocked(),
+        });
+        if (swapIntent) drawDragIntent(ctx, swapIntent);
+        drawSwapFloating(ctx, swapping, sc);
+      }
       if (floating && cards[floating.slot]) {
         drawCardPosed(
           ctx,
@@ -918,14 +967,13 @@ export function createViudaEngine({
   function reset() {
     fx.reset();
     drag.cancel();
+    swap.cancel();
     state = newGame();
     order = initialOrder(state.seats[localSeat].hand);
     prevOrder = order;
     prevHand = state.seats[localSeat].hand;
     score = 0;
     gameOverEmitted = false;
-    selOwn = null;
-    selWidow = null;
     playSorteo();
     emit();
   }
@@ -942,6 +990,7 @@ export function createViudaEngine({
     pointerUp,
     pointerCancel() {
       drag.cancel();
+      swap.cancel();
     },
     click,
     reset,

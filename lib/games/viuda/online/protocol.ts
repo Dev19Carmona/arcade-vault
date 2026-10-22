@@ -126,6 +126,16 @@ export const EVENT_REJECT = "reject";
 export const EVENT_HAND = "hand";
 export const EVENT_BACKUP = "backup"; // canal de mano: copia del estado para el relevo
 export const EVENT_CLOSED = "closed"; // canal público: el anfitrión cierra la sala a propósito
+export const EVENT_CHAT = "chat"; // canal público: mensaje de chat de un jugador (efímero)
+
+// Mensaje de chat. Viaja por broadcast entre jugadores, sin pasar por el anfitrión ni guardarse.
+export interface ChatMessage {
+  id: string; // aleatorio, para deduplicar
+  playerId: string;
+  alias: string;
+  text: string; // 1–140 caracteres
+  at: number; // Date.now() del emisor, solo para mostrar
+}
 
 export const roomChannelName = (code: string) => `viuda:room:${code}`;
 export const handChannelName = (code: string, playerId: string) =>
@@ -168,6 +178,26 @@ export function isPublicEvent(value: unknown): value is PublicEvent {
 // un anfitrión más nuevo) se descartan en vez de invalidar la mesa entera.
 export function publicEvents(table: PublicTable): PublicEvent[] {
   return (table.events ?? []).filter(isPublicEvent);
+}
+
+export function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const m = value as Partial<ChatMessage>;
+  return (
+    typeof m.id === "string" &&
+    m.id.length > 0 &&
+    m.id.length <= 96 &&
+    typeof m.playerId === "string" &&
+    m.playerId.length > 0 &&
+    m.playerId.length <= 64 &&
+    typeof m.alias === "string" &&
+    m.alias.length > 0 &&
+    m.alias.length <= 32 &&
+    typeof m.text === "string" &&
+    m.text.trim().length > 0 &&
+    m.text.length <= 140 &&
+    typeof m.at === "number"
+  );
 }
 
 export function isRejectMessage(value: unknown): value is RejectMessage {

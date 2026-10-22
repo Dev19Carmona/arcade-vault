@@ -10,7 +10,9 @@ import {
   createHostSession,
   type HostSession,
 } from "@/lib/games/viuda/online/host";
+import { appendChat } from "@/lib/games/viuda/online/chat";
 import type {
+  ChatMessage,
   HostBackup,
   JoinRejection,
   OnlineAction,
@@ -36,6 +38,8 @@ export function useRoomSession(room: EnteredRoom) {
   const [hostAwayUntil, setHostAwayUntil] = useState<number | null>(null);
   // Cambia en pleno juego: un jugador pasa a anfitrión si el anterior no vuelve.
   const [isHost, setIsHost] = useState(room.isHost);
+  // Chat de la sala: los últimos mensajes, solo en memoria (sin historial).
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const sessionRef = useRef<Session | null>(null);
 
   useEffect(() => {
@@ -52,6 +56,8 @@ export function useRoomSession(room: EnteredRoom) {
         name: room.name,
         onTable: setTable,
         onHand: setHand,
+        onChat: (message: ChatMessage) =>
+          setChat((list) => appendChat(list, message)),
         onError: (message: string) => setFailure({ kind: "error", message }),
       };
       const openHost = (restore?: HostBackup) => {
@@ -114,6 +120,12 @@ export function useRoomSession(room: EnteredRoom) {
     sessionRef.current?.act(action);
   }, []);
 
+  // Mensaje de chat. Devuelve false si se descartó (vacío, muy seguido o sin conexión).
+  const sendChat = useCallback(
+    (text: string): boolean => sessionRef.current?.chat(text) ?? false,
+    [],
+  );
+
   // Controles del anfitrión: CONTINUAR, PAUSAR, REANUDAR y ELIMINAR.
   const host = useCallback((run: (session: HostSession) => void) => {
     const session = sessionRef.current;
@@ -143,6 +155,8 @@ export function useRoomSession(room: EnteredRoom) {
     notice,
     hostAwayUntil,
     isHost,
+    chat,
+    sendChat,
     start,
     act,
     continueGame,

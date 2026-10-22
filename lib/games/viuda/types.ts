@@ -5,6 +5,9 @@ export interface ViudaSnapshot {
   lives: number; // vidas del jugador humano
   round: number;
   rivals: number; // CPU vivas
+  canPass: boolean; // el jugador humano puede pasar ahora (su turno y sin animación)
+  canCall: boolean; // puede llamar ahora (además, nadie ha llamado en la ronda)
+  inTurn: boolean; // fase de turnos: fuera de ella (sorteo, duelo) el canvas dibuja CONTINUAR
 }
 
 export interface ViudaEngineOptions {

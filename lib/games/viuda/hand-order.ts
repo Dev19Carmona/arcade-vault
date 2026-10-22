@@ -95,9 +95,17 @@ export interface FloatingCard {
   dragging: boolean;
 }
 
+// Qué hay bajo la carta arrastrada. «hand»: otra posición de la mano (reordenar);
+// las demás son la viuda, que calcula quien dibuja con su geometría.
+export type WidowTarget =
+  | { kind: "widow-card"; widowIndex: number } // sobre una carta de la viuda abierta
+  | { kind: "widow-zone" }; // sobre la zona de la viuda, no sobre una carta concreta
+export type DragTarget =
+  { kind: "hand"; to: number } | WidowTarget | { kind: "none" };
+
 export type DragRelease =
   | { kind: "click"; slot: number }
-  | { kind: "drop"; from: number; to: number }
+  | { kind: "drop"; from: number; to: number; target: DragTarget }
   | null;
 
 export interface HandDrag {
@@ -108,7 +116,11 @@ export interface HandDrag {
     rects: readonly Rect[],
     canGrab?: (slot: number) => boolean,
   ): void;
-  move(x: number, y: number): void;
+  // `over` es el destino de la viuda bajo el puntero (null si no hay): mientras lo hay, la
+  // mano no se reordena y las vecinas no se apartan.
+  move(x: number, y: number, over?: WidowTarget | null): void;
+  // Destino actual del arrastre en curso (null si no se está arrastrando).
+  target(): DragTarget | null;
   // Soltar: clic corto, arrastre terminado o nada (sin candidata).
   up(): DragRelease;
   cancel(): void;
@@ -132,6 +144,7 @@ export function createHandDrag(slots: number): HandDrag {
   let dragging = false;
   let from = -1;
   let target = -1;
+  let overWidow: WidowTarget | null = null;
   let pos = { x: 0, y: 0 };
   let settle: {
     slot: number;
@@ -171,8 +184,9 @@ export function createHandDrag(slots: number): HandDrag {
         rects: [...rects],
       };
     },
-    move(x, y) {
+    move(x, y, over = null) {
       pos = { x, y };
+      overWidow = over;
       if (!candidate) return;
       if (
         !dragging &&
@@ -182,7 +196,10 @@ export function createHandDrag(slots: number): HandDrag {
         from = candidate.slot;
         target = from;
       }
-      if (dragging) {
+      if (dragging && overWidow) {
+        // Sobre la viuda no se reordena: la carta volverá a su sitio.
+        target = from;
+      } else if (dragging) {
         // El hueco destino es la carta cuyo centro queda más cerca en horizontal.
         let best = from;
         let bestDist = Infinity;
@@ -202,6 +219,8 @@ export function createHandDrag(slots: number): HandDrag {
       candidate = null;
       if (!dragging) return { kind: "click", slot: c.slot };
       dragging = false;
+      const released = overWidow;
+      overWidow = null;
       const end = centerOf(c.rects[target]);
       settle = {
         slot: target,
@@ -212,11 +231,21 @@ export function createHandDrag(slots: number): HandDrag {
         t: 0,
       };
       offs.fill(0);
-      return { kind: "drop", from, to: target };
+      return {
+        kind: "drop",
+        from,
+        to: target,
+        target: released ?? { kind: "hand", to: target },
+      };
+    },
+    target() {
+      if (!dragging) return null;
+      return overWidow ?? { kind: "hand", to: target };
     },
     cancel() {
       candidate = null;
       dragging = false;
+      overWidow = null;
       settle = null;
       offs.fill(0);
     },

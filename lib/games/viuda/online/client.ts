@@ -1,18 +1,22 @@
 import { createClient } from "@/lib/supabase/client";
-import { setStatus } from "@/lib/supabase/rooms";
+import { cleanAlias, setStatus } from "@/lib/supabase/rooms";
+import { createChatOutbox } from "./chat";
 import {
   EVENT_BACKUP,
+  EVENT_CHAT,
   EVENT_CLIENT,
   EVENT_CLOSED,
   EVENT_HAND,
   EVENT_REJECT,
   EVENT_TABLE,
   handChannelName,
+  isChatMessage,
   isHostBackup,
   isPrivateHand,
   isPublicTable,
   isRejectMessage,
   roomChannelName,
+  type ChatMessage,
   type ClientMessage,
   type HostBackup,
   type JoinRejection,
@@ -49,6 +53,7 @@ export interface ClientSessionOptions {
   rejoin: boolean; // vuelve a una partida ya empezada en vez de entrar a una sala
   onTable: (table: PublicTable) => void;
   onHand: (hand: PrivateHand) => void;
+  onChat: (message: ChatMessage) => void; // también recibe los propios, sin pasar por la red
   onRejected: (reason: Exclude<JoinRejection, "running">) => void; // definitivo
   onNotice: (notice: RoomNotice | null) => void;
   onHostAway: (until: number | null) => void; // el anfitrión no responde: hora (ms) en que se hace el relevo
@@ -59,6 +64,7 @@ export interface ClientSessionOptions {
 
 export interface ClientSession {
   act(action: OnlineAction): void; // pide una acción; el anfitrión decide si vale
+  chat(text: string): boolean; // envía un mensaje de chat; false si se descartó
   leave(): Promise<void>; // SALIR: avisa al anfitrión y suelta los canales
   dispose(): Promise<void>; // suelta los canales
 }
@@ -258,6 +264,26 @@ export function createClientSession(
     onRejected(payload.reason);
   });
 
+  // Chat: llega directo de los demás jugadores; no lo valida el anfitrión.
+  channel.on("broadcast", { event: EVENT_CHAT }, ({ payload }) => {
+    if (disposed || !isChatMessage(payload) || payload.playerId === playerId) {
+      return;
+    }
+    options.onChat(payload);
+  });
+  const sendChat = createChatOutbox(
+    playerId,
+    cleanAlias(name) || "JUGADOR",
+    (message) => {
+      void channel.send({
+        type: "broadcast",
+        event: EVENT_CHAT,
+        payload: message,
+      });
+      options.onChat(message);
+    },
+  );
+
   // El anfitrión avisa antes de cerrar la sala a propósito: no hay nada que esperar.
   channel.on("broadcast", { event: EVENT_CLOSED }, () => hostLeft());
 
@@ -330,6 +356,10 @@ export function createClientSession(
       if (!disposed && awayUntil === null) {
         send({ kind: "action", playerId, action });
       }
+    },
+    chat(text) {
+      if (disposed || channel.state !== "joined") return false;
+      return sendChat(text);
     },
     async leave() {
       if (!disposed) send({ kind: "leave", playerId });

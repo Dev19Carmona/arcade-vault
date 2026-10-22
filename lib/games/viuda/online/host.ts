@@ -16,19 +16,23 @@ import {
   type RulesState,
 } from "../rules";
 import type { Card } from "../types";
+import { createChatOutbox } from "./chat";
 import { saveHostBackup } from "./identity";
 import {
   EVENT_BACKUP,
+  EVENT_CHAT,
   EVENT_CLIENT,
   EVENT_CLOSED,
   EVENT_HAND,
   EVENT_REJECT,
   EVENT_TABLE,
   handChannelName,
+  isChatMessage,
   isClientMessage,
   isPublicTable,
   roomChannelName,
   toPublicEvents,
+  type ChatMessage,
   type HostBackup,
   type JoinRejection,
   type OnlineAction,
@@ -57,6 +61,7 @@ export interface HostSessionOptions {
   name: string;
   onTable: (table: PublicTable) => void; // la mesa que ve el propio anfitrión
   onHand: (hand: PrivateHand) => void; // su propia mano, sin pasar por la red
+  onChat: (message: ChatMessage) => void; // también recibe los propios, sin pasar por la red
   onError: (message: string) => void;
   onReconnecting?: (reconnecting: boolean) => void; // el canal se cayó y se está reconectando
   restore?: HostBackup; // relevo: sigue la sala con el estado que tenía el anfitrión anterior
@@ -66,6 +71,7 @@ export interface HostSessionOptions {
 export interface HostSession {
   start(): Promise<boolean>; // INICIAR: cierra la entrada y pasa la sala a `playing`
   act(action: OnlineAction): void; // acción del propio anfitrión
+  chat(text: string): boolean; // mensaje de chat del anfitrión; false si se descartó
   continueGame(): void; // CONTINUAR en el sorteo y el duelo
   pause(): void; // PAUSAR: ninguna acción de juego se acepta y los desconectados pueden volver
   resume(): void; // REANUDAR: los que siguen desconectados quedan eliminados
@@ -566,6 +572,22 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     }
   });
 
+  // Chat: llega directo de los demás jugadores; el anfitrión solo lo recibe como uno más.
+  channel.on("broadcast", { event: EVENT_CHAT }, ({ payload }) => {
+    if (disposed || !isChatMessage(payload) || payload.playerId === playerId) {
+      return;
+    }
+    options.onChat(payload);
+  });
+  const sendChat = createChatOutbox(playerId, hostName, (message) => {
+    void channel.send({
+      type: "broadcast",
+      event: EVENT_CHAT,
+      payload: message,
+    });
+    options.onChat(message);
+  });
+
   // Otro anfitrión publica en la misma sala: el de `term` mayor (o, en empate, el de id menor) manda.
   channel.on("broadcast", { event: EVENT_TABLE }, ({ payload }) => {
     if (disposed || superseded || !isPublicTable(payload)) return;
@@ -719,6 +741,10 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     },
     act(action) {
       handleAction(playerId, action);
+    },
+    chat(text) {
+      if (disposed || channel.state !== "joined") return false;
+      return sendChat(text);
     },
     continueGame() {
       advanceGame();

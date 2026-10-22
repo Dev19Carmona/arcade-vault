@@ -1332,6 +1332,224 @@ a {
 .game-canvas--drag {
   touch-action: none;
 }
+/* VS CPU: PASO y LLAMO ocupan la franja que dejaron los botones del canvas, bajo la mano.
+   El tamaño sigue al del monitor (--sw) para que ocupen lo mismo que ocupaban dibujados. */
+.vd-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2.4%;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--sw) * 0.02);
+  pointer-events: none;
+}
+/* `display: flex` anularía el atributo hidden. */
+.vd-actions[hidden] {
+  display: none;
+}
+.vd-action {
+  --tone: var(--yellow);
+  pointer-events: auto;
+  min-width: calc(var(--sw) * 0.19);
+  padding: 0.7em 1.4em;
+  font: 700 clamp(10px, calc(var(--sw) * 0.017), 15px) / 1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--tone);
+  background: rgba(5, 8, 20, 0.92);
+  border: 2px solid var(--tone);
+  border-radius: 6px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 35%, transparent);
+  cursor: pointer;
+  transition:
+    transform 80ms,
+    background-color 120ms;
+}
+.vd-action.call {
+  --tone: var(--magenta);
+}
+.vd-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tone) 16%, rgba(5, 8, 20, 0.92));
+}
+.vd-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.vd-action:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+.vd-action:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  cursor: default;
+}
+.vd-action kbd {
+  margin-left: 0.6em;
+  font: inherit;
+  opacity: 0.6;
+}
+.vd-action kbd::before {
+  content: "[";
+}
+.vd-action kbd::after {
+  content: "]";
+}
+/* Sin teclado físico (móvil) no hay atajos que mostrar. */
+@media (hover: none), (pointer: coarse) {
+  .vd-action kbd {
+    display: none;
+  }
+}
+/* Chat de la sala en línea: una barra en la esquina inferior de la mesa (PASO, LLAMO y el
+   campo de texto) con la última línea encima. Al enfocar el campo la lista se despliega hacia
+   arriba. Escritorio: abajo a la izquierda, sin tapar CONTINUAR (centro) ni la mano.
+   Móvil en vertical: todo el ancho bajo la fila de botones del canvas. El tamaño sigue al del
+   monitor (--sw). */
+.vd-chat {
+  position: absolute;
+  left: 1%;
+  bottom: 1%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 38%;
+  font: 500 clamp(10px, calc(var(--sw) * 0.0165), 13px) / 1.35 var(--mono);
+  color: var(--ink);
+}
+.vd-chat-log {
+  height: 1.35em;
+  padding: 0 6px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  text-shadow: 0 1px 2px #000;
+  cursor: text;
+}
+.vd-chat-log p {
+  margin: 0 0 3px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+/* Con el campo enfocado: lista completa, con fondo para leerla sobre la mesa. */
+.vd-chat:has(.vd-chat-input:focus) .vd-chat-log {
+  height: calc(var(--sw) * 0.2);
+  min-height: 96px;
+  padding: 6px;
+  overflow-y: auto;
+  background: rgba(5, 8, 20, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-shadow: none;
+}
+.vd-chat:has(.vd-chat-input:focus) .vd-chat-log p {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.vd-chat-empty {
+  color: var(--ink-faint);
+}
+.vd-chat-msg b {
+  color: var(--cyan);
+}
+.vd-chat-msg.mine b {
+  color: var(--yellow);
+}
+/* Lo que escribo va a la derecha; lo de los demás, a la izquierda. */
+.vd-chat-msg.mine {
+  text-align: right;
+}
+.vd-chat-sys {
+  color: var(--ink-dim);
+}
+.vd-chat-warn {
+  color: var(--magenta);
+}
+.vd-chat-bar {
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  background: rgba(5, 8, 20, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.vd-chip {
+  --tone: var(--yellow);
+  flex: none;
+  padding: 0 0.7em;
+  font: 700 0.92em / 1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--tone);
+  background: transparent;
+  border: 1.5px solid var(--tone);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.vd-chip.call {
+  --tone: var(--magenta);
+}
+.vd-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+}
+.vd-chip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.vd-chat-form {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+}
+.vd-chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5em 0.6em;
+  font: inherit;
+  /* 16px mínimo: por debajo, Safari en iOS hace zoom al enfocar el campo. */
+  font-size: max(16px, 1em);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.vd-chat-input:focus-visible,
+.vd-chat-log:focus-visible,
+.vd-chip:focus-visible,
+.vd-chat-send:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+.vd-chat-send {
+  flex: none;
+  padding: 0 0.7em;
+  font: 700 1em / 1 var(--mono);
+  color: var(--cyan);
+  background: transparent;
+  border: 1.5px solid var(--cyan);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.vd-chat-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* Móvil en vertical (misma consulta que PORTRAIT_QUERY): ancho completo bajo la fila de
+   botones del canvas, que acaba en el 92,5 % del alto. */
+@media (max-width: 720px) and (orientation: portrait) {
+  .vd-chat {
+    left: 2%;
+    right: 2%;
+    bottom: 0.8%;
+    width: auto;
+  }
+  /* Plegado solo se ve la barra; la lista aparece al tocar el campo. */
+  .vd-chat:not(:has(.vd-chat-input:focus)) .vd-chat-log {
+    display: none;
+  }
+}
 /* La mesa de Viuda se lee de cerca: sin líneas de barrido ni viñeta encima de las cartas. */
 .crt-screen:has(.game-canvas--drag)::before,
 .crt-screen:has(.game-canvas--drag)::after {
