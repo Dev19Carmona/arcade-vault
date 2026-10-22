@@ -98,6 +98,25 @@ export async function setStatus(
   if (error) throw new Error(`No se pudo cambiar la sala: ${error.message}`);
 }
 
+// Relevo del anfitrión: la sala pasa a manos de otro jugador y conserva su estado.
+export async function claimRoom(
+  code: string,
+  hostId: string,
+  hostName: string,
+  status: Exclude<RoomStatus, "closed">,
+): Promise<void> {
+  const { error } = await createClient()
+    .from("rooms")
+    .update({
+      host_id: hostId,
+      host_name: cleanAlias(hostName) || "JUGADOR",
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("code", code);
+  if (error) throw new Error(`No se pudo traspasar la sala: ${error.message}`);
+}
+
 export type JoinBlocker = "closed" | "started" | "full";
 
 // Por qué no se puede entrar a una sala, o null si se puede. Una sala en espera sin

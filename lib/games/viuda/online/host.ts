@@ -1,6 +1,11 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { cleanAlias, heartbeat, setStatus } from "@/lib/supabase/rooms";
+import {
+  claimRoom,
+  cleanAlias,
+  heartbeat,
+  setStatus,
+} from "@/lib/supabase/rooms";
 import { LIVES, MAX_PLAYERS, MIN_PLAYERS } from "../constants";
 import {
   advance,
@@ -12,14 +17,18 @@ import {
 } from "../rules";
 import type { Card } from "../types";
 import {
+  EVENT_BACKUP,
   EVENT_CLIENT,
+  EVENT_CLOSED,
   EVENT_HAND,
   EVENT_REJECT,
   EVENT_TABLE,
   handChannelName,
   isClientMessage,
+  isPublicTable,
   roomChannelName,
   toPublicEvents,
+  type HostBackup,
   type JoinRejection,
   type OnlineAction,
   type PrivateHand,
@@ -36,6 +45,10 @@ const ADVANCE_TICK_MS = 250;
 // al sincronizarse, presence puede emitir un leave seguido de un join sin que nadie se vaya.
 const LEAVE_GRACE_MS = 1500;
 const FALLBACK_NAME = "JUGADOR";
+// Cuántos jugadores guardan la copia del estado para tomar la sala si el anfitrión cae.
+const BACKUP_COUNT = 2;
+// Tras un relevo, margen para que presence se sincronice antes de dar a cada uno por conectado.
+const RESTORE_SYNC_MS = 2000;
 
 export interface HostSessionOptions {
   code: string;
@@ -44,6 +57,8 @@ export interface HostSessionOptions {
   onTable: (table: PublicTable) => void; // la mesa que ve el propio anfitrión
   onHand: (hand: PrivateHand) => void; // su propia mano, sin pasar por la red
   onError: (message: string) => void;
+  restore?: HostBackup; // relevo: sigue la sala con el estado que tenía el anfitrión anterior
+  onSuperseded?: (hostId: string) => void; // otro jugador tomó la sala mientras este estaba caído
 }
 
 export interface HostSession {
@@ -67,25 +82,31 @@ interface HandLink {
   channel: RealtimeChannel;
   ready: boolean;
   pending: PrivateHand | null;
+  pendingBackup: HostBackup | null;
 }
 
 // Sesión del anfitrión: es la autoridad de la sala. Decide quién entra, ejecuta las
 // reglas, valida cada acción y difunde la mesa pública a todos y la mano privada a
 // cada jugador. Solo él ve todas las cartas.
 export function createHostSession(options: HostSessionOptions): HostSession {
-  const { code, playerId, onTable, onHand, onError } = options;
+  const { code, playerId, onTable, onHand, onError, restore } = options;
   const supabase = createClient();
   const channel = supabase.channel(roomChannelName(code), {
     config: { presence: { key: playerId }, broadcast: { self: false } },
   });
 
   const hostName = cleanAlias(options.name) || FALLBACK_NAME;
-  let players: Player[] = [{ playerId, name: hostName }];
+  let players: Player[] = restore?.players ?? [{ playerId, name: hostName }];
   // null mientras la sala espera; con partida, el estado de las reglas.
-  let game: RulesState | null = null;
+  let game: RulesState | null = restore?.game ?? null;
+  // Sube en cada relevo; los clientes ignoran lo que llegue de un `term` menor.
+  const term = restore ? restore.term + 1 : 0;
   // Empieza en la hora actual para que una sesión nueva del mismo anfitrión
-  // nunca quede por debajo del `seq` que los clientes ya vieron.
-  let seq = Date.now();
+  // nunca quede por debajo del `seq` que los clientes ya vieron (y, en un relevo,
+  // por debajo del último del anfitrión anterior).
+  let seq = Math.max(Date.now(), restore ? restore.seq + 1 : 0);
+  let superseded = false;
+  let restoring = restore !== undefined; // hasta sincronizar presence no se publica
   // Marca de tiempo (no acumulación por frame): la pestaña en segundo plano frena los timers.
   let advanceDeadline: number | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -97,7 +118,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   let pausedRemainingMs: number | null = null; // lo que faltaba para avanzar al pausar
   let pausedPhase: RulesState["phase"] | null = null;
   const connected = new Set<string>(); // jugadores de la partida que siguen conectados
-  const removed = new Set<string>(); // eliminados por desconexión: su asiento ya no está reservado
+  const removed = new Set<string>(restore?.removed ?? []); // eliminados por desconexión: su asiento ya no está reservado
   const leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Un canal por jugador para su mano, así las cartas ocultas no viajan por el público.
@@ -107,10 +128,41 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   const sentHands = new Map<string, string>(); // última mano enviada, para no repetir
   const pendingTaken = new Map<string, Card[]>(); // lo que acaba de tomar de la viuda
 
+  // Quiénes guardan la copia: los siguientes de la lista que siguen conectados.
+  function backupTargets(): string[] {
+    return players
+      .filter(
+        (p) =>
+          p.playerId !== playerId &&
+          !removed.has(p.playerId) &&
+          (!game || connected.has(p.playerId)),
+      )
+      .slice(0, BACKUP_COUNT)
+      .map((p) => p.playerId);
+  }
+
+  function makeBackup(): HostBackup {
+    const remaining = paused
+      ? pausedRemainingMs
+      : advanceDeadline === null
+        ? null
+        : Math.max(0, advanceDeadline - Date.now());
+    return {
+      seq,
+      term,
+      players,
+      game,
+      removed: [...removed],
+      advanceRemainingMs: remaining,
+    };
+  }
+
   function buildTable(): PublicTable {
     if (!game) {
       return {
         seq,
+        term,
+        backupIds: backupTargets(),
         phase: "waiting",
         paused: false,
         round: 0,
@@ -139,6 +191,8 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     const names = new Map(players.map((p) => [p.playerId, p.name]));
     return {
       seq,
+      term,
+      backupIds: backupTargets(),
       phase: g.phase,
       paused,
       round: g.round,
@@ -182,7 +236,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   }
 
   function publish() {
-    if (disposed) return;
+    if (disposed || superseded || restoring) return;
     seq++;
     const table = buildTable();
     onTable(table);
@@ -191,6 +245,23 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       event: EVENT_TABLE,
       payload: table,
     });
+    sendBackups(table.backupIds ?? []);
+  }
+
+  // La copia del estado va solo a los que pueden relevar al anfitrión, por su canal de mano.
+  function sendBackups(ids: string[]) {
+    if (ids.length === 0) return;
+    const backup = makeBackup();
+    for (const id of ids) {
+      const link = handLink(id);
+      if (link.ready) {
+        void link.channel.send({
+          type: "broadcast",
+          event: EVENT_BACKUP,
+          payload: backup,
+        });
+      } else link.pendingBackup = backup;
+    }
   }
 
   function sendHand(channel: RealtimeChannel, payload: PrivateHand) {
@@ -201,12 +272,25 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     let link = handLinks.get(id);
     if (!link) {
       const channel = supabase.channel(handChannelName(code, id));
-      const created: HandLink = { channel, ready: false, pending: null };
+      const created: HandLink = {
+        channel,
+        ready: false,
+        pending: null,
+        pendingBackup: null,
+      };
       channel.subscribe((status) => {
         if (disposed || status !== "SUBSCRIBED") return;
         created.ready = true;
         if (created.pending) sendHand(channel, created.pending);
+        if (created.pendingBackup) {
+          void channel.send({
+            type: "broadcast",
+            event: EVENT_BACKUP,
+            payload: created.pendingBackup,
+          });
+        }
         created.pending = null;
+        created.pendingBackup = null;
       });
       handLinks.set(id, created);
       link = created;
@@ -278,6 +362,11 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     if (disposed || game || id === playerId) return;
     if (!players.some((p) => p.playerId === id)) return;
     players = players.filter((p) => p.playerId !== id);
+    const link = handLinks.get(id);
+    if (link) {
+      handLinks.delete(id);
+      void supabase.removeChannel(link.channel);
+    }
     publish();
     syncRoom();
   }
@@ -473,6 +562,19 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     }
   });
 
+  // Otro anfitrión publica en la misma sala: el de `term` mayor (o, en empate, el de id menor) manda.
+  channel.on("broadcast", { event: EVENT_TABLE }, ({ payload }) => {
+    if (disposed || superseded || !isPublicTable(payload)) return;
+    if (payload.hostId === playerId) return;
+    const other = payload.term ?? 0;
+    if (other > term || (other === term && payload.hostId < playerId)) {
+      superseded = true;
+      options.onSuperseded?.(payload.hostId);
+    } else {
+      publish(); // que el otro se entere de que ya no manda
+    }
+  });
+
   // Presence cubre lo que no llega por mensaje: pestañas cerradas y reconexiones.
   channel.on("presence", { event: "join" }, ({ newPresences }) => {
     for (const presence of newPresences) {
@@ -496,6 +598,10 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     if (disposed) return;
     if (status === "SUBSCRIBED") {
       await channel.track({ playerId, name: hostName });
+      if (restoring) {
+        setTimeout(finishRestore, RESTORE_SYNC_MS);
+        return;
+      }
       publish();
       syncRoom();
       if (!heartbeatTimer && !game) {
@@ -505,6 +611,49 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       onError("Se perdió la conexión con la sala.");
     }
   });
+
+  function startAdvanceTimer() {
+    if (advanceTimer) return;
+    advanceTimer = setInterval(() => {
+      if (!paused && advanceDeadline !== null && Date.now() >= advanceDeadline) {
+        advanceGame();
+      }
+    }, ADVANCE_TICK_MS);
+  }
+
+  // Relevo: tras sincronizar presence, se da por conectado a quien siga en el canal y la
+  // partida queda en pausa para que los demás puedan volver con `rejoin`.
+  function finishRestore() {
+    if (disposed || superseded || !restoring || !restore) return;
+    restoring = false;
+    const present = channel.presenceState();
+    if (game) {
+      for (const seat of game.seats) {
+        if (seat.id !== playerId && seat.id in present && !removed.has(seat.id))
+          connected.add(seat.id);
+      }
+      if (game.phase !== "final") {
+        paused = true;
+        pausedPhase = game.phase;
+        pausedRemainingMs =
+          game.phase === "draw" || game.phase === "showdown"
+            ? restore.advanceRemainingMs
+            : null;
+      }
+      startAdvanceTimer();
+      armAdvance();
+    } else {
+      players = players.filter(
+        (p) => p.playerId === playerId || p.playerId in present,
+      );
+      if (!heartbeatTimer) heartbeatTimer = setInterval(syncRoom, HEARTBEAT_MS);
+    }
+    claimRoom(code, playerId, hostName, game ? "playing" : "waiting").catch(
+      () => {},
+    );
+    publish();
+    sendHands();
+  }
 
   function stopTimers() {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -550,15 +699,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       // Se suscriben ya los canales de mano para que estén listos al repartir.
       for (const p of players)
         if (p.playerId !== playerId) handLink(p.playerId);
-      advanceTimer = setInterval(() => {
-        if (
-          !paused &&
-          advanceDeadline !== null &&
-          Date.now() >= advanceDeadline
-        ) {
-          advanceGame();
-        }
-      }, ADVANCE_TICK_MS);
+      startAdvanceTimer();
       armAdvance();
       publish();
       return true;
@@ -574,6 +715,16 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     eliminatePlayer,
     rematch,
     async close() {
+      // Aviso explícito: los jugadores no esperan a un relevo cuando se cierra a propósito.
+      try {
+        await channel.send({
+          type: "broadcast",
+          event: EVENT_CLOSED,
+          payload: { hostId: playerId },
+        });
+      } catch {
+        // Sin aviso, los jugadores caen en la espera normal del anfitrión.
+      }
       try {
         await setStatus(code, "closed");
       } catch {
