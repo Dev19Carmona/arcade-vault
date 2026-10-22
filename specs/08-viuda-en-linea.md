@@ -234,7 +234,7 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` la guía de Cl
 - [ ] Una partida con 2, 5 y 9 jugadores reparte 5 cartas a cada uno y 5 a la viuda sin repetir cartas.
 - [ ] Cada jugador ve únicamente su mano; las manos ajenas solo se ven en el duelo.
 - [ ] Las acciones fuera de turno, con la viuda cerrada (CAMBIAR 1), de un jugador eliminado o durante la pausa son rechazadas por el anfitrión y el estado no cambia.
-- [ ] Las reglas de ronda, viuda, última vuelta y duelo coinciden con SPEC 07 (pierde 1 vida solo la peor mano; empate en la peor, pierden todos los empatados).
+- [ ] Las reglas de ronda, viuda, última vuelta y duelo coinciden con SPEC 07 (pierde 1 vida solo la peor mano; ~~empate en la peor, pierden todos los empatados~~ — reemplazado por SPEC 11: las pintas desempatan y pierde un solo jugador).
 - [ ] Los jugadores eliminados salen de los turnos y siguen viendo la mesa; la partida termina al quedar uno vivo.
 - [ ] El sorteo y el duelo avanzan con CONTINUAR del anfitrión o solos a los 8 s, y la cuenta se congela en pausa.
 - [ ] Cuando un jugador se desconecta, todos ven su asiento como «desconectado» y el anfitrión ve PAUSAR y ELIMINAR.

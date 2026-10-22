@@ -2,6 +2,7 @@ import {
   HAND_SIZE,
   RANK_LABELS,
   RANKS,
+  SUIT_POWER,
   SUIT_SYMBOLS,
   SUITS,
   WIN_POINTS_PER_LIFE,
@@ -27,10 +28,10 @@ export function cardLabel(card: Card): string {
   return `${RANK_LABELS[card.rank]}${SUIT_SYMBOLS[card.suit]}`;
 }
 
-// Sorteo inicial: gana el rango más alto; en empate, el palo (♠ > ♥ > ♦ > ♣).
+// Sorteo inicial: gana el rango más alto; en empate, la pinta (♦ > ♥ > ♠ > ♣).
 // Positivo si `a` supera a `b`.
 export function compareDrawCards(a: Card, b: Card): number {
-  return a.rank - b.rank || a.suit - b.suit;
+  return a.rank - b.rank || SUIT_POWER[a.suit] - SUIT_POWER[b.suit];
 }
 
 // Mano de póker de 5 cartas. El as vale alto, o bajo en A-2-3-4-5.
@@ -73,17 +74,29 @@ export function evaluateHand(cards: readonly Card[]): HandValue {
   else if (shape === "2111") category = 1;
   else category = 0;
 
-  return { category, tiebreak: ranks };
+  // Terna, full house y póker se deciden por rango (no hay dos iguales con 52 cartas).
+  // En el resto desempata la pinta de la carta determinante: la mayor del rango que
+  // encabeza el desempate (la carta alta, el par, el par superior o la que corona la escalera).
+  const decidedByRank = category === 3 || category === 6 || category === 7;
+  const suitBreak = decidedByRank
+    ? 0
+    : Math.max(
+        ...cards
+          .filter((c) => c.rank === ranks[0])
+          .map((c) => SUIT_POWER[c.suit]),
+      );
+
+  return { category, tiebreak: ranks, suitBreak };
 }
 
-// Positivo si `a` supera a `b`, 0 si empatan (los palos no desempatan).
+// Positivo si `a` supera a `b`. Solo devuelve 0 para la misma mano: la pinta es el último desempate.
 export function compareHands(a: HandValue, b: HandValue): number {
   if (a.category !== b.category) return a.category - b.category;
   for (let i = 0; i < a.tiebreak.length; i++) {
     const diff = a.tiebreak[i] - b.tiebreak[i];
     if (diff !== 0) return diff;
   }
-  return 0;
+  return a.suitBreak - b.suitBreak;
 }
 
 // Puntos de la partida: solo cuenta ganar; perder vale 0.

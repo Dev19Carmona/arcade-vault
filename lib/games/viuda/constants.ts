@@ -36,6 +36,9 @@ export const SUIT_SYMBOLS: Record<Suit, string> = {
   3: "♠",
 };
 
+// Jerarquía de pintas del reglamento (mayor valor = mayor jerarquía): ♣ < ♠ < ♥ < ♦.
+export const SUIT_POWER: Record<Suit, number> = { 0: 0, 3: 1, 2: 2, 1: 3 };
+
 export const RANK_LABELS: Record<Rank, string> = {
   2: "2",
   3: "3",

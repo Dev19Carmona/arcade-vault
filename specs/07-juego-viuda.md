@@ -3,6 +3,7 @@
 > **Estado:** Implementado
 > **Depende de:** SPEC 04 (patrón motor + canvas), SPEC 05 (tablas `games` y `scores`), SPEC 06 (registro de canvas ya creado)
 > **Fecha:** 2026-10-19
+> **Nota (SPEC 11):** en este spec quedaron reemplazadas por `specs/11-viuda-reglamento-y-correcciones.md` tres reglas: quién empieza las rondas (ahora rota al siguiente vivo, no empieza quien perdió vida), el orden de pintas (♦ > ♥ > ♠ > ♣) y el empate en la peor mano (ahora los palos desempatan y pierde un solo jugador). Donde el texto de abajo diga otra cosa, manda SPEC 11 y `lib/games/viuda/REGLAS.md`.
 > **Objetivo:** Crear Viuda, un juego de cartas de póker por vidas contra la computadora, como el juego `viuda` en `/juego/viuda/jugar`, integrado con el HUD, la pausa y el modal de la plataforma, con su fila en la tabla `games` y las puntuaciones guardadas en `scores`.
 
 ---
@@ -76,13 +77,13 @@ Es el tercer juego real; el registro (`components/games/registry.ts`) y `GamePla
 
 ## Controles
 
-| Acción                            | Ratón                                                          | Teclado                                                           |
-| --------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Continuar (sorteo, duelo, final)  | Botón CONTINUAR                                                | `Espacio` / `Enter`                                               |
-| Cambiar 5 (siempre) | Botón CAMBIAR 5 | `C` |
-| Paso                              | Botón PASO                                                     | `P`                                                               |
-| Llamo                             | Botón LLAMO                                                    | `L`                                                               |
-| Cambiar 1 (viuda abierta) | Clic en carta propia, clic en carta de la viuda, botón CAMBIAR 1 | `1`–`5` carta propia, `Q W E R T` carta de la viuda, `X` confirma |
+| Acción                           | Ratón                                                            | Teclado                                                           |
+| -------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Continuar (sorteo, duelo, final) | Botón CONTINUAR                                                  | `Espacio` / `Enter`                                               |
+| Cambiar 5 (siempre)              | Botón CAMBIAR 5                                                  | `C`                                                               |
+| Paso                             | Botón PASO                                                       | `P`                                                               |
+| Llamo                            | Botón LLAMO                                                      | `L`                                                               |
+| Cambiar 1 (viuda abierta)        | Clic en carta propia, clic en carta de la viuda, botón CAMBIAR 1 | `1`–`5` carta propia, `Q W E R T` carta de la viuda, `X` confirma |
 
 `preventDefault` solo sobre estas teclas y nunca dentro de inputs.
 
@@ -209,7 +210,7 @@ Antes de escribir código, leer en `node_modules/next/dist/docs/` la guía de Cl
 | Canvas desproporcionado en móvil / clic desalineado  | Resolución lógica 800×600; conversión con `getBoundingClientRect()`  |
 | Teclado inalcanzable en móvil                        | El ratón/clic cubre todas las acciones; táctil en un spec propio     |
 | Errores en el evaluador de manos                     | Utilidades puras; casos límite revisados a mano en la verificación   |
-| Partida infinita por pasos sucesivos                 | Las CPU bajan el umbral de llamada en cada vuelta sin llamadas        |
+| Partida infinita por pasos sucesivos                 | Las CPU bajan el umbral de llamada en cada vuelta sin llamadas       |
 | Puntuación 0 en derrota llena el leaderboard         | Aceptado por decisión del usuario; se revisa en un spec posterior    |
 | RLS abierta permite scores falsos                    | Riesgo asumido en SPEC 05; se resuelve en un spec de seguridad       |
 

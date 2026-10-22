@@ -38,7 +38,6 @@ export interface RulesState {
   round: number;
   starter: number; // quien empezó la ronda
   current: number; // asiento con el turno
-  nextStarter: number; // quien empieza la ronda siguiente (fijado en el duelo)
   lap: number;
   actionsInLap: number;
   caller: number | null;
@@ -162,6 +161,8 @@ function startRound(draft: RulesState, first: number, rng: Rng): void {
   record(draft, { kind: "deal" });
 }
 
+// Pierde 1 vida la peor mano. `compareHands` desempata por pinta y nunca da empate entre
+// manos distintas, así que `losers` tiene siempre un solo asiento.
 function startShowdown(draft: RulesState): void {
   const alive = aliveSeats(draft);
   const values = new Map(
@@ -180,18 +181,6 @@ function startShowdown(draft: RulesState): void {
     seat.loser = losers.includes(i);
     if (seat.loser) seat.lives--;
   }
-
-  // Empieza la siguiente ronda quien perdió vida (el primero en orden desde el actual).
-  const count = draft.seats.length;
-  let first = draft.starter;
-  for (let step = 0; step < count; step++) {
-    const i = (draft.starter + step) % count;
-    if (losers.includes(i)) {
-      first = i;
-      break;
-    }
-  }
-  draft.nextStarter = first;
   draft.phase = "showdown";
   record(draft, { kind: "showdown" });
 }
@@ -205,10 +194,9 @@ function resolveShowdown(draft: RulesState, rng: Rng): void {
     draft.phase = "final";
     return;
   }
-  const first = draft.seats[draft.nextStarter].alive
-    ? draft.nextStarter
-    : nextAlive(draft, draft.nextStarter);
-  startRound(draft, first, rng);
+  // La salida rota: la ronda siguiente la abre el siguiente vivo (a la derecha) de quien
+  // abrió esta, sin importar quién perdió vida. Los eliminados se saltan.
+  startRound(draft, nextAlive(draft, draft.starter), rng);
 }
 
 // La vuelta se completó sin llamadas: la viuda se abre y las vueltas siguen hasta que alguien llame.
@@ -266,7 +254,6 @@ export function createGame(
     round: 0,
     starter: 0,
     current: 0,
-    nextStarter: 0,
     lap: 1,
     actionsInLap: 0,
     caller: null,
@@ -425,7 +412,8 @@ export function eliminate(state: RulesState, playerId: string): RulesResult {
 }
 
 // Clasificación: primero quien sigue vivo, luego los eliminados del más reciente al más
-// antiguo. Los eliminados en el mismo duelo van en el mismo grupo (empatan).
+// antiguo. Con un solo perdedor por duelo cada grupo tiene un jugador; el formato en grupos
+// se conserva por el protocolo (`rankingGroups`).
 export function getRanking(state: RulesState): string[][] {
   const alive = state.seats.filter((seat) => seat.alive).map((seat) => seat.id);
   const eliminated = [...state.eliminations].reverse();

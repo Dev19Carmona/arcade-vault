@@ -344,6 +344,14 @@ export function createTableFx(): TableFx {
     }
   }
 
+  // La marca del llamador dura hasta que se muestran las manos. Se limpia cuando la mesa ya
+  // no tiene llamada y no queda nada por animar (así no se pierde el cartel de una llamada
+  // que aún está en cola).
+  function clearStaleCallMark() {
+    if (!table || queue.length > 0 || tl.isLocked()) return;
+    if (table.callerId === null || table.phase !== "turn") tl.clearSticky();
+  }
+
   return {
     tl,
     ingest(t, h, id, nowMs) {
@@ -391,10 +399,12 @@ export function createTableFx(): TableFx {
         livesBefore = new Map(t.seats.map((s) => [s.playerId, s.lives]));
       }
       drain(nowMs);
+      clearStaleCallMark();
     },
     update(dtSeconds, nowMs) {
       tl.update(dtSeconds);
       drain(nowMs);
+      clearStaleCallMark();
     },
     isLocked() {
       return tl.isLocked() || waitingSince !== null;
