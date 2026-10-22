@@ -137,9 +137,12 @@ export function createClientSession(
 
   function hostPresent(): boolean {
     // Un anfitrión que recargó la pestaña se ve a sí mismo en presence, pero ya no manda.
-    return (
-      hostId !== null && hostId !== playerId && hostId in channel.presenceState()
-    );
+    // Si volvió sin poder restaurar la partida entra como cliente (`host: false`): con su
+    // id en presence, nadie tomaría la sala.
+    if (hostId === null || hostId === playerId) return false;
+    const metas = channel.presenceState()[hostId] as
+      { host?: boolean }[] | undefined;
+    return !!metas && metas.some((m) => m.host !== false);
   }
 
   // El anfitrión no responde: se le espera y, si no vuelve, lo releva el siguiente de la lista.
@@ -210,7 +213,8 @@ export function createClientSession(
     if (disposed || promoted || !isPublicTable(payload)) return;
     // Un anfitrión desbancado puede seguir publicando al volver: su `term` es menor.
     const term = payload.term ?? 0;
-    if (term < lastTerm || (term === lastTerm && payload.seq <= lastSeq)) return;
+    if (term < lastTerm || (term === lastTerm && payload.seq <= lastSeq))
+      return;
     const me = payload.seats.find((seat) => seat.playerId === playerId);
     // Solo cuenta como admitido si el anfitrión lo incluye en la mesa; antes de eso,
     // las mesas son de otros jugadores y no se muestran.
@@ -257,8 +261,11 @@ export function createClientSession(
   // El anfitrión avisa antes de cerrar la sala a propósito: no hay nada que esperar.
   channel.on("broadcast", { event: EVENT_CLOSED }, () => hostLeft());
 
-  channel.on("presence", { event: "join" }, ({ key }) => {
-    if (key === hostId && key !== playerId) cancelAway();
+  channel.on("presence", { event: "join" }, ({ key, newPresences }) => {
+    const asClient = (newPresences as { host?: boolean }[]).every(
+      (m) => m.host === false,
+    );
+    if (key === hostId && key !== playerId && !asClient) cancelAway();
   });
   channel.on("presence", { event: "leave" }, ({ key }) => {
     if (key === hostId) scheduleHostCheck();
@@ -285,7 +292,7 @@ export function createClientSession(
   channel.subscribe(async (status) => {
     if (disposed) return;
     if (status === "SUBSCRIBED") {
-      await channel.track({ playerId, name });
+      await channel.track({ playerId, name, host: false });
       // Tras una reconexión, el anfitrión ya no me da por conectado hasta que vuelva a pedirlo.
       if (member) {
         admitted = false;
