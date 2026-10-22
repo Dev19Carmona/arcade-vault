@@ -58,6 +58,7 @@ export function useRoomSession(room: EnteredRoom) {
         session = createHostSession({
           ...base,
           restore,
+          onReconnecting: (on) => setNotice(on ? "reconnecting" : null),
           onSuperseded: (hostId) => void openClient(hostId, true),
         });
         sessionRef.current = session;
@@ -90,7 +91,7 @@ export function useRoomSession(room: EnteredRoom) {
         sessionRef.current = session;
         setIsHost(false);
       };
-      if (room.isHost) openHost();
+      if (room.isHost) openHost(room.restore);
       else void openClient(room.hostId ?? null, room.rejoin ?? false);
     }, 0);
 

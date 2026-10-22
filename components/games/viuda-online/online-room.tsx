@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GameSnapshot } from "@/lib/games/types";
-import { clearSession } from "@/lib/games/viuda/online/identity";
+import { clearSession, touchSession } from "@/lib/games/viuda/online/identity";
 import { onlineSnapshot } from "@/lib/games/viuda/online/snapshot";
 import type { EnteredRoom } from "./lobby";
 import { OnlineTable } from "./online-table";
@@ -52,6 +52,23 @@ export function OnlineRoom({
   useEffect(() => {
     onSnapshot(onlineSnapshot(table, room.playerId));
   }, [table, room.playerId, onSnapshot]);
+
+  // Latido para poder volver a la sala si se cierra la ventana (ver identity.ts).
+  useEffect(() => {
+    touchSession();
+    const timer = setInterval(() => touchSession(), 4000);
+    const release = () => touchSession(true);
+    const resume = () => {
+      if (!document.hidden) touchSession();
+    };
+    window.addEventListener("pagehide", release);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("pagehide", release);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, []);
 
   function exit() {
     leave();

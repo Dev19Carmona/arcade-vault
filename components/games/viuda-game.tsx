@@ -7,7 +7,9 @@ import { Lobby, type EnteredRoom } from "@/components/games/viuda-online/lobby";
 import type { GameCanvasProps, GameSnapshot } from "@/lib/games/types";
 import {
   clearSession,
+  loadHostBackup,
   loadSession,
+  recoverSession,
   readAlias,
 } from "@/lib/games/viuda/online/identity";
 import { findRoom } from "@/lib/supabase/rooms";
@@ -43,12 +45,56 @@ export function ViudaGame(props: GameCanvasProps) {
 
   // Si la pestaña se recargó en plena partida, se vuelve al asiento reservado.
   useEffect(() => {
-    const session = loadSession();
+    const session = loadSession() ?? recoverSession();
     if (!session) return;
     let cancelled = false;
     findRoom(session.code)
       .then((room) => {
         if (cancelled) return;
+        // El anfitrión que vuelve con la sala aún a su nombre (nadie la relevó) la retoma:
+        // en espera, los jugadores siguen en presence; en partida, con el estado guardado
+        // (queda en pausa hasta que todos vuelvan).
+        const backup = session.isHost ? loadHostBackup(session.code) : null;
+        if (
+          session.isHost &&
+          room &&
+          room.host_id === session.playerId &&
+          (room.status === "waiting" || (room.status === "playing" && backup))
+        ) {
+          setView((current) =>
+            current.name === "select"
+              ? {
+                  name: "room",
+                  room: {
+                    code: session.code,
+                    playerId: session.playerId,
+                    name: readAlias() || "JUGADOR",
+                    isHost: true,
+                    restore: backup ?? undefined,
+                  },
+                }
+              : current,
+          );
+          return;
+        }
+        // Un jugador que vuelve a una sala todavía en espera entra de nuevo con su id.
+        if (room?.status === "waiting" && !session.isHost) {
+          setView((current) =>
+            current.name === "select"
+              ? {
+                  name: "room",
+                  room: {
+                    code: session.code,
+                    playerId: session.playerId,
+                    name: readAlias() || "JUGADOR",
+                    isHost: false,
+                    hostId: room.host_id,
+                  },
+                }
+              : current,
+          );
+          return;
+        }
         if (room?.status === "playing") {
           setView((current) =>
             current.name === "select"

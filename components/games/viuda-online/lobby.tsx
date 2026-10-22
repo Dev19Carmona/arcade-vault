@@ -9,6 +9,7 @@ import {
   saveSession,
   writeAlias,
 } from "@/lib/games/viuda/online/identity";
+import type { HostBackup } from "@/lib/games/viuda/online/protocol";
 import {
   isValidRoomCode,
   normalizeRoomCode,
@@ -28,6 +29,7 @@ export interface EnteredRoom {
   name: string;
   isHost: boolean;
   hostId?: string; // id del anfitrión, para detectar si se cae (solo jugadores)
+  restore?: HostBackup; // el anfitrión retoma su partida con el estado guardado
   rejoin?: boolean; // vuelve a una partida ya empezada en vez de entrar a la sala
 }
 
@@ -88,7 +90,7 @@ export function Lobby({
 
   function enter(roomCode: string, isHost: boolean, hostId?: string) {
     writeAlias(name);
-    saveSession({ playerId, code: roomCode });
+    saveSession({ playerId, code: roomCode, isHost });
     onEnter({ code: roomCode, playerId, name, isHost, hostId });
   }
 

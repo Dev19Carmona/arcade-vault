@@ -16,6 +16,7 @@ import {
   type RulesState,
 } from "../rules";
 import type { Card } from "../types";
+import { saveHostBackup } from "./identity";
 import {
   EVENT_BACKUP,
   EVENT_CLIENT,
@@ -57,6 +58,7 @@ export interface HostSessionOptions {
   onTable: (table: PublicTable) => void; // la mesa que ve el propio anfitrión
   onHand: (hand: PrivateHand) => void; // su propia mano, sin pasar por la red
   onError: (message: string) => void;
+  onReconnecting?: (reconnecting: boolean) => void; // el canal se cayó y se está reconectando
   restore?: HostBackup; // relevo: sigue la sala con el estado que tenía el anfitrión anterior
   onSuperseded?: (hostId: string) => void; // otro jugador tomó la sala mientras este estaba caído
 }
@@ -106,6 +108,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   // por debajo del último del anfitrión anterior).
   let seq = Math.max(Date.now(), restore ? restore.seq + 1 : 0);
   let superseded = false;
+  let everSubscribed = false;
   let restoring = restore !== undefined; // hasta sincronizar presence no se publica
   // Marca de tiempo (no acumulación por frame): la pestaña en segundo plano frena los timers.
   let advanceDeadline: number | null = null;
@@ -240,6 +243,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     seq++;
     const table = buildTable();
     onTable(table);
+    saveHostBackup(code, makeBackup());
     void channel.send({
       type: "broadcast",
       event: EVENT_TABLE,
@@ -597,7 +601,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   channel.subscribe(async (status) => {
     if (disposed) return;
     if (status === "SUBSCRIBED") {
-      await channel.track({ playerId, name: hostName });
+      everSubscribed = true;
+      options.onReconnecting?.(false);
+      await channel.track({ playerId, name: hostName, host: true });
       if (restoring) {
         setTimeout(finishRestore, RESTORE_SYNC_MS);
         return;
@@ -608,14 +614,21 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         heartbeatTimer = setInterval(syncRoom, HEARTBEAT_MS);
       }
     } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-      onError("Se perdió la conexión con la sala.");
+      // Con la sala ya abierta (móvil bloqueado, red caída) la librería reintenta sola y al
+      // volver a SUBSCRIBED se retoma la mesa: no es un fallo definitivo.
+      if (everSubscribed) options.onReconnecting?.(true);
+      else onError("Se perdió la conexión con la sala.");
     }
   });
 
   function startAdvanceTimer() {
     if (advanceTimer) return;
     advanceTimer = setInterval(() => {
-      if (!paused && advanceDeadline !== null && Date.now() >= advanceDeadline) {
+      if (
+        !paused &&
+        advanceDeadline !== null &&
+        Date.now() >= advanceDeadline
+      ) {
         advanceGame();
       }
     }, ADVANCE_TICK_MS);
