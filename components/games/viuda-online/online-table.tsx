@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { H, HAND_SIZE, MAX_DT, W } from "@/lib/games/viuda/constants";
 import { useSoundEnabled } from "../use-sound-enabled";
 import { useViudaLayout } from "../use-viuda-layout";
+import { createSwapDrag, resolveSwapIntent } from "@/lib/games/viuda/swap-drag";
 import { pointInRect } from "@/lib/games/viuda/entities";
 import {
   createHandDrag,
@@ -19,36 +20,34 @@ import type {
 import { createTableFx } from "@/lib/games/viuda/online/table-fx";
 import { createSfx, type Sfx } from "@/lib/games/viuda/sfx/player";
 import {
+  dragBlockedReason,
   drawOnlineTable,
   isMyTurn,
   onlineButtons,
   ownCardRects,
   statusLine,
-  widowCardRects,
   type OnlineButtonId,
   type OnlineView,
 } from "@/lib/games/viuda/online/table-view";
+import { widowTargetAt } from "@/lib/games/viuda/online/geometry";
 
 // Atajos de SPEC 07: P paso, L llamo, C cambiar 5, X cambiar 1, 1–5 carta propia,
 // Q W E R T carta de la viuda, Espacio/Enter continuar.
-const OWN_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5"];
-const WIDOW_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR", "KeyT"];
 const CONTINUE_KEYS = ["Space", "Enter", "NumpadEnter"];
 const GAME_KEYS = new Set([
   "KeyP",
   "KeyL",
   "KeyC",
-  "KeyX",
-  ...OWN_KEYS,
-  ...WIDOW_KEYS,
   ...CONTINUE_KEYS,
 ]);
 
+// Teclado del chat (campo y chips): las teclas del juego no actúan mientras el foco está ahí.
 function isTextTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
+    (target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest(".vd-chat") !== null))
   );
 }
 
@@ -75,15 +74,13 @@ export function OnlineTable(props: Props) {
   const size = useViudaLayout();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const live = useRef(props);
-  const sel = useRef<{ own: number | null; widow: number | null }>({
-    own: null,
-    widow: null,
-  });
   const pointer = useRef({ x: -1, y: -1 });
   // Animaciones de la mesa: cada cliente anima por su cuenta los eventos que llegan.
   const [fx] = useState(createTableFx);
   // Arrastre de las cartas de mi mano: solo reordena mi vista, no es una acción de juego.
   const [drag] = useState(() => createHandDrag(HAND_SIZE));
+  // Arrastre de una carta de la viuda o de un marco (cambiar 1 hacia mi mano, o las 5).
+  const [swap] = useState(createSwapDrag);
   const lastHandSeq = useRef(-1);
   // Cuenta atrás local: el anfitrión envía los segundos solo al cambiar la mesa.
   const deadline = useRef<number | null>(null);
@@ -120,6 +117,7 @@ export function OnlineTable(props: Props) {
     if ((props.hand?.seq ?? -1) !== lastHandSeq.current) {
       lastHandSeq.current = props.hand?.seq ?? -1;
       drag.cancel();
+      swap.cancel();
     }
     if (table.phase === "draw" || table.phase === "turn") {
       livesBeforeDuel.current = new Map(
@@ -146,10 +144,6 @@ export function OnlineTable(props: Props) {
           ? null
           : performance.now() + table.autoAdvanceIn * 1000;
     }
-    // La selección solo tiene sentido en mi turno y con la viuda abierta.
-    if (!isMyTurn({ table, playerId }) || !table.widowOpen) {
-      sel.current = { own: null, widow: null };
-    }
   });
 
   // Dibujo, ratón y teclado: se crean al montar y se limpian por completo al desmontar.
@@ -175,8 +169,6 @@ export function OnlineTable(props: Props) {
         playerId: p.playerId,
         isHost: p.isHost,
         losers: losers.current,
-        selOwn: sel.current.own,
-        selWidow: sel.current.widow,
         pointer: pointer.current,
         secondsLeft: left,
         notice: p.notice,
@@ -188,6 +180,7 @@ export function OnlineTable(props: Props) {
         locked: fx.isLocked(),
         order: fx.order(),
         drag,
+        swap,
       };
     };
 
@@ -195,7 +188,6 @@ export function OnlineTable(props: Props) {
       const p = live.current;
       const view = currentView();
       const mine = isMyTurn(view);
-      const clear = () => (sel.current = { own: null, widow: null });
       if (id === "leave") p.onLeave();
       else if (id === "continue") p.onContinue();
       else if (id === "pause") p.onPause();
@@ -208,13 +200,6 @@ export function OnlineTable(props: Props) {
       else if (id === "call") {
         if (p.table.callerId === null) p.onAction({ type: "call" });
       } else if (id === "swap5") p.onAction({ type: "swap5" });
-      else if (id === "swap1") {
-        const { own, widow } = sel.current;
-        if (p.table.widowOpen && own !== null && widow !== null) {
-          p.onAction({ type: "swap1", handIndex: own, widowIndex: widow });
-        }
-      }
-      clear();
     };
 
     // Pantalla -> coordenadas lógicas del canvas, que se escala por CSS.
@@ -252,28 +237,12 @@ export function OnlineTable(props: Props) {
         fx.skip();
         return;
       }
-      // Con la viuda abierta se eligen una carta propia y una de la viuda.
-      if (isMyTurn(view) && view.table.widowOpen) {
-        // La selección guarda el índice de las reglas: acompaña a la carta aunque se mueva.
-        const cards = view.hand?.hand ?? [];
-        const indices = visualIndices(view.order, cards);
-        ownCardRects(cards.length).forEach((r, v) => {
-          if (pointInRect(x, y, r)) {
-            const k = indices[v];
-            sel.current.own = sel.current.own === k ? null : k;
-          }
-        });
-        widowCardRects().forEach((r, i) => {
-          if (pointInRect(x, y, r)) {
-            sel.current.widow = sel.current.widow === i ? null : i;
-          }
-        });
-      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
       const { x, y } = toLogical(e);
-      drag.move(x, y);
+      drag.move(x, y, widowTargetAt(x, y, !!currentView().table.widowOpen));
+      swap.move(x, y);
     };
     // Al salir del canvas el arrastre, si lo hay, conserva su última posición.
     const onPointerLeave = () => (pointer.current = { x: -1, y: -1 });
@@ -290,6 +259,15 @@ export function OnlineTable(props: Props) {
           ownCardRects(HAND_SIZE),
           (slot) => !fx.tl.hidden.has(`own:${slot}`) && !fx.waiting(),
         );
+        // Si no hay carta propia bajo el puntero: una carta de la viuda o un marco.
+        const view = currentView();
+        if (!drag.busy()) {
+          swap.down(x, y, {
+            canGrab:
+              view.table.phase === "turn" && !view.locked && !fx.waiting(),
+            widowOpen: !!view.table.widowOpen,
+          });
+        }
       }
     };
     const onPointerUp = (e: PointerEvent) => {
@@ -298,9 +276,60 @@ export function OnlineTable(props: Props) {
         canvas.releasePointerCapture(e.pointerId);
       }
       const { x, y } = toLogical(e);
-      drag.move(x, y);
+      drag.move(x, y, widowTargetAt(x, y, !!currentView().table.widowOpen));
+      swap.move(x, y);
       const release = drag.up();
+      if (!release) {
+        const dropped = swap.up();
+        if (dropped?.kind === "drop") {
+          const view = currentView();
+          const hand = view.hand?.hand ?? [];
+          const own = visualIndices(fx.order(), hand).map((k) => hand[k]);
+          const intent = resolveSwapIntent({
+            source: dropped.source,
+            x: dropped.x,
+            y: dropped.y,
+            ownCards: own,
+            widow: view.table.widowOpen
+              ? view.table.widow
+              : view.table.widow.map(() => null),
+            blocked: dragBlockedReason(view) ?? (fx.waiting() ? "ESPERA UN MOMENTO" : null),
+          });
+          if (intent?.kind === "swap1") {
+            live.current.onAction({
+              type: "swap1",
+              handIndex: visualToRules(fx.order(), hand, intent.handVisual),
+              widowIndex: intent.widowIndex,
+            });
+          } else if (intent?.kind === "swap5") {
+            live.current.onAction({ type: "swap5" });
+          }
+          return;
+        }
+      }
       if (release?.kind === "drop") {
+        const { target } = release;
+        if (target.kind === "widow-card" || target.kind === "widow-zone") {
+          // Soltar sobre una carta de la viuda es CAMBIAR 1; en el hueco no pasa nada (las 5
+          // se cambian con el botón CAMBIAR VIUDA).
+          const view = currentView();
+          if (
+            target.kind === "widow-card" &&
+            !dragBlockedReason(view) &&
+            !fx.waiting()
+          ) {
+            live.current.onAction({
+              type: "swap1",
+              handIndex: visualToRules(
+                fx.order(),
+                view.hand?.hand ?? [],
+                release.from,
+              ),
+              widowIndex: target.widowIndex,
+            });
+          }
+          return;
+        }
         if (release.from !== release.to) {
           fx.setOrder(moveCard(fx.order(), release.from, release.to));
           sfxRef.current?.play("sort");
@@ -309,7 +338,10 @@ export function OnlineTable(props: Props) {
       }
       handleClick();
     };
-    const onPointerCancel = () => drag.cancel();
+    const onPointerCancel = () => {
+      drag.cancel();
+      swap.cancel();
+    };
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!GAME_KEYS.has(e.code) || isTextTarget(e.target)) return;
@@ -336,19 +368,6 @@ export function OnlineTable(props: Props) {
       if (e.code === "KeyP") activate("pass");
       else if (e.code === "KeyL") activate("call");
       else if (e.code === "KeyC") activate("swap5");
-      else if (e.code === "KeyX") activate("swap1");
-      else if (t.widowOpen) {
-        const own = OWN_KEYS.indexOf(e.code);
-        const widow = WIDOW_KEYS.indexOf(e.code);
-        if (own >= 0) {
-          // Las teclas 1–5 son posiciones visuales, de izquierda a derecha.
-          const k = visualToRules(fx.order(), view.hand?.hand ?? [], own);
-          sel.current.own = sel.current.own === k ? null : k;
-        }
-        if (widow >= 0) {
-          sel.current.widow = sel.current.widow === widow ? null : widow;
-        }
-      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       // Evita que Espacio/Enter activen un botón con foco al soltarlos.
@@ -387,7 +406,7 @@ export function OnlineTable(props: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [fx, drag]);
+  }, [fx, drag, swap]);
 
   return (
     <div className="vd-screen">

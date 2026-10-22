@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { H, W } from "@/lib/games/viuda/constants";
 import { createViudaEngine } from "@/lib/games/viuda/engine";
 import { createSfx, type Sfx } from "@/lib/games/viuda/sfx/player";
@@ -13,17 +13,6 @@ const GAME_KEYS = new Set([
   "KeyP",
   "KeyL",
   "KeyC",
-  "KeyX",
-  "Digit1",
-  "Digit2",
-  "Digit3",
-  "Digit4",
-  "Digit5",
-  "KeyQ",
-  "KeyW",
-  "KeyE",
-  "KeyR",
-  "KeyT",
   "Space",
   "Enter",
   "NumpadEnter",
@@ -53,6 +42,12 @@ export function ViudaCanvas({
   const [soundOn] = useSoundEnabled();
   const soundOnRef = useRef(soundOn);
   const sfxRef = useRef<Sfx | null>(null);
+  // PASO y LLAMO son botones HTML bajo la mano; el motor dice cuándo están disponibles.
+  const [actions, setActions] = useState({
+    canPass: false,
+    canCall: false,
+    inTurn: true,
+  });
 
   // Las refs siempre apuntan a los últimos valores sin recrear el motor.
   useEffect(() => {
@@ -75,7 +70,8 @@ export function ViudaCanvas({
     sfxRef.current = sfx;
     const engine = createViudaEngine({
       sfx,
-      onChange: ({ score, lives, round, rivals }) =>
+      onChange: ({ score, lives, round, rivals, canPass, canCall, inTurn }) => {
+        setActions({ canPass, canCall, inTurn });
         onChangeRef.current({
           score,
           lives,
@@ -83,7 +79,8 @@ export function ViudaCanvas({
             { label: "RONDA", value: String(Math.max(round, 1)) },
             { label: "RIVALES", value: String(rivals) },
           ],
-        }),
+        });
+      },
       onGameOver: (finalScore) => onGameOverRef.current(finalScore),
     });
     engineRef.current = engine;
@@ -194,13 +191,38 @@ export function ViudaCanvas({
     engineRef.current?.reset();
   }, [runId]);
 
+  const press = (code: string) => {
+    if (!pausedRef.current) engineRef.current?.press(code);
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="game-canvas game-canvas--drag"
-      width={size.width}
-      height={size.height}
-      aria-label="Viuda"
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className="game-canvas game-canvas--drag"
+        width={size.width}
+        height={size.height}
+        aria-label="Viuda"
+      />
+      {/* Fuera de la fase de turnos el canvas dibuja CONTINUAR en la misma franja. */}
+      <div className="vd-actions" hidden={!actions.inTurn}>
+        <button
+          type="button"
+          className="vd-action pass"
+          disabled={paused || !actions.canPass}
+          onClick={() => press("KeyP")}
+        >
+          PASO<kbd>P</kbd>
+        </button>
+        <button
+          type="button"
+          className="vd-action call"
+          disabled={paused || !actions.canCall}
+          onClick={() => press("KeyL")}
+        >
+          LLAMO<kbd>L</kbd>
+        </button>
+      </div>
+    </>
   );
 }

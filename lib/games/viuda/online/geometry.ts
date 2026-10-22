@@ -18,6 +18,7 @@ import {
   seatCardRects,
 } from "../entities";
 import type { BadgeAnchor } from "../fx/draw";
+import type { WidowTarget } from "../hand-order";
 import type { Rect } from "../types";
 import { opponentRects, relativeSeat } from "./layout";
 
@@ -38,6 +39,35 @@ export function widowCardRects(): Rect[] {
     WIDOW_CARD_H,
     WIDOW_GAP,
   );
+}
+
+const WIDOW_ZONE_MARGIN = 14; // px lógicos alrededor de las cartas de la viuda
+
+// Qué parte de la viuda hay bajo el punto: una carta (solo con la viuda abierta), el resto
+// de la zona (hueco entre cartas o marco; cualquier punto si está cerrada) o nada.
+export function widowTargetAt(
+  x: number,
+  y: number,
+  widowOpen: boolean,
+): WidowTarget | null {
+  const rects = widowCardRects();
+  const left = rects[0].x - WIDOW_ZONE_MARGIN;
+  const top = rects[0].y - WIDOW_ZONE_MARGIN;
+  const right = rects[rects.length - 1].x + rects[rects.length - 1].w;
+  const bottom = rects[0].y + rects[0].h;
+  const inside =
+    x >= left &&
+    x <= right + WIDOW_ZONE_MARGIN &&
+    y >= top &&
+    y <= bottom + WIDOW_ZONE_MARGIN;
+  if (!inside) return null;
+  if (widowOpen) {
+    const i = rects.findIndex(
+      (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h,
+    );
+    if (i >= 0) return { kind: "widow-card", widowIndex: i };
+  }
+  return { kind: "widow-zone" };
 }
 
 // Cartas de un rival: dorsos solapados, o abiertas en el duelo y el sorteo.

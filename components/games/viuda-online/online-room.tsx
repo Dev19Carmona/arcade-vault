@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { GameSnapshot } from "@/lib/games/types";
 import { clearSession, touchSession } from "@/lib/games/viuda/online/identity";
 import { onlineSnapshot } from "@/lib/games/viuda/online/snapshot";
+import { RoomChat } from "./chat";
 import type { EnteredRoom } from "./lobby";
 import { OnlineTable } from "./online-table";
 import { useRoomSession, type RoomFailure } from "./use-room-session";
@@ -37,6 +38,8 @@ export function OnlineRoom({
     notice,
     hostAwayUntil,
     isHost,
+    chat,
+    sendChat,
     start,
     act,
     continueGame,
@@ -131,20 +134,29 @@ export function OnlineRoom({
   }
 
   return (
-    <OnlineTable
-      table={table}
-      hand={hand}
-      playerId={room.playerId}
-      isHost={isHost}
-      notice={notice}
-      hostAwayUntil={hostAwayUntil}
-      onAction={act}
-      onContinue={continueGame}
-      onPause={pause}
-      onResume={resume}
-      onEliminate={eliminatePlayer}
-      onRematch={rematch}
-      onLeave={exit}
-    />
+    <>
+      <OnlineTable
+        table={table}
+        hand={hand}
+        playerId={room.playerId}
+        isHost={isHost}
+        notice={notice}
+        hostAwayUntil={hostAwayUntil}
+        onAction={act}
+        onContinue={continueGame}
+        onPause={pause}
+        onResume={resume}
+        onEliminate={eliminatePlayer}
+        onRematch={rematch}
+        onLeave={exit}
+      />
+      <RoomChat
+        table={table}
+        playerId={room.playerId}
+        chat={chat}
+        sendChat={sendChat}
+        onAction={act}
+      />
+    </>
   );
 }
