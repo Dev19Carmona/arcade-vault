@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { H, HAND_SIZE, MAX_DT, W } from "@/lib/games/viuda/constants";
+import { useViudaLayout } from "../use-viuda-layout";
 import { pointInRect } from "@/lib/games/viuda/entities";
 import {
   createHandDrag,
@@ -69,6 +70,7 @@ interface Props {
 // pública y mano privada); aquí solo se dibuja y se traducen clics y teclas a acciones.
 export function OnlineTable(props: Props) {
   const { table, playerId } = props;
+  const size = useViudaLayout();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const live = useRef(props);
   const sel = useRef<{ own: number | null; widow: number | null }>({
@@ -369,8 +371,8 @@ export function OnlineTable(props: Props) {
       <canvas
         ref={canvasRef}
         className="game-canvas game-canvas--drag"
-        width={W}
-        height={H}
+        width={size.width}
+        height={size.height}
         aria-label="Mesa de Viuda en línea"
       />
       <p className="sr-only" role="status" aria-live="polite">

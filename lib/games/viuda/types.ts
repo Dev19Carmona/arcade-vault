@@ -25,7 +25,7 @@ export interface ViudaEngine {
   getSnapshot(): ViudaSnapshot;
 }
 
-// 0 = ♣, 1 = ♦, 2 = ♥, 3 = ♠ (orden de desempate del sorteo).
+// 0 = ♣, 1 = ♦, 2 = ♥, 3 = ♠ (identificador del palo; la jerarquía está en SUIT_POWER).
 export type Suit = 0 | 1 | 2 | 3;
 
 // 2–10 numéricos, 11 = J, 12 = Q, 13 = K, 14 = A.
@@ -41,8 +41,11 @@ export type HandCategory = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export interface HandValue {
   category: HandCategory;
-  // Rangos que desempatan, de más a menos importante (los palos no desempatan).
+  // Rangos que desempatan, de más a menos importante.
   tiebreak: number[];
+  // Último desempate: SUIT_POWER de la carta determinante (la de mayor pinta entre las del
+  // rango `tiebreak[0]`). 0 en terna, full house y póker, donde el rango ya decide.
+  suitBreak: number;
 }
 
 // Lo que acaba de ocurrir en la mesa; solo informa a quien anima, no interviene en las reglas.

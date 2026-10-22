@@ -14,6 +14,7 @@ import {
   COLOR_YELLOW,
   FONT,
   H,
+  LAYOUT_MODE,
   LIVES,
   RANK_LABELS,
   SUIT_SYMBOLS,
@@ -70,22 +71,46 @@ export function cardRowRects(
   }));
 }
 
-// Fila de botones centrada en horizontal.
+// Botones centrados: en una fila, o de dos en dos (la última fila centrada) en el lienzo vertical.
 export function buttonRowRects(count: number, y: number): Rect[] {
-  return cardRowRects(count, W / 2, y, BUTTON_W, BUTTON_H, BUTTON_GAP);
+  if (LAYOUT_MODE === "landscape") {
+    return cardRowRects(count, W / 2, y, BUTTON_W, BUTTON_H, BUTTON_GAP);
+  }
+  const rows = Math.ceil(count / 2);
+  return Array.from({ length: count }, (_, i) => {
+    const row = Math.floor(i / 2);
+    const inRow = row === rows - 1 ? count - row * 2 : 2;
+    const total = inRow * BUTTON_W + (inRow - 1) * BUTTON_GAP;
+    return {
+      x: (W - total) / 2 + (i - row * 2) * (BUTTON_W + BUTTON_GAP),
+      y: y + row * (BUTTON_H + BUTTON_GAP),
+      w: BUTTON_W,
+      h: BUTTON_H,
+    };
+  });
 }
 
+// Tapete: fieltro con un óvalo de mesa y su borde acolchado. Sin tramas de líneas, para que
+// las cartas se lean limpias.
 export function drawTable(ctx: CanvasRenderingContext2D): void {
-  const g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7);
+  const cx = W / 2;
+  const cy = H * 0.47;
+  const g = ctx.createRadialGradient(cx, cy, 40, cx, cy, Math.max(W, H) * 0.75);
   g.addColorStop(0, COLOR_FELT);
   g.addColorStop(1, COLOR_FELT_DARK);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
-  ctx.lineWidth = 2;
+
+  ctx.save();
   ctx.beginPath();
-  ctx.ellipse(W / 2, H / 2, W * 0.42, H * 0.36, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy, W * 0.47, H * 0.42, 0, 0, Math.PI * 2);
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = "rgba(0,0,0,0.28)";
   ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  ctx.stroke();
+  ctx.restore();
 }
 
 function roundRect(
@@ -97,23 +122,33 @@ function roundRect(
   ctx.roundRect(r.x, r.y, r.w, r.h, radius);
 }
 
+// Cuánto sube una carta seleccionada: proporcional a su alto, para que se note igual en todos los tamaños.
+export function liftOf(r: Rect): number {
+  return r.h * 0.12;
+}
+
 export function drawCard(
   ctx: CanvasRenderingContext2D,
   card: Card,
   r: Rect,
   style: CardStyle = {},
 ): void {
-  const y = style.selected ? r.y - 14 : r.y;
+  const y = style.selected ? r.y - liftOf(r) : r.y;
   const box = { ...r, y };
   const red = card.suit === 1 || card.suit === 2;
   const ink = red ? COLOR_RED_SUIT : COLOR_BLACK_SUIT;
+  // Las cartas grandes llevan la esquina opuesta; las pequeñas (abanicos de rivales) solo una.
+  const big = r.w >= 56;
+  const pad = Math.max(3, r.w * 0.09);
+  const rankPx = Math.max(10, Math.round(r.w * (big ? 0.3 : 0.38)));
+  const suitPx = Math.max(9, Math.round(r.w * (big ? 0.24 : 0.3)));
 
   ctx.save();
   if (style.dim) ctx.globalAlpha = 0.55;
-  ctx.shadowColor = "rgba(0,0,0,0.45)";
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 3;
-  roundRect(ctx, box, 6);
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = Math.max(6, r.w * 0.12);
+  ctx.shadowOffsetY = Math.max(2, r.w * 0.04);
+  roundRect(ctx, box, Math.max(5, r.w * 0.09));
   ctx.fillStyle = COLOR_CARD;
   ctx.fill();
   ctx.shadowColor = "transparent";
@@ -126,17 +161,33 @@ export function drawCard(
   }
 
   ctx.fillStyle = ink;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.font = `bold ${Math.round(r.w * 0.3)}px ${FONT}`;
-  ctx.fillText(RANK_LABELS[card.rank], box.x + 6, box.y + 5);
-  ctx.font = `${Math.round(r.w * 0.28)}px ${FONT}`;
-  ctx.fillText(SUIT_SYMBOLS[card.suit], box.x + 6, box.y + 5 + r.w * 0.32);
+  const drawCorner = () => {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const cx = pad + rankPx * (card.rank === 10 ? 0.55 : 0.32);
+    ctx.font = `bold ${rankPx}px ${FONT}`;
+    ctx.fillText(RANK_LABELS[card.rank], cx, pad + rankPx * 0.5);
+    ctx.font = `${suitPx}px ${FONT}`;
+    ctx.fillText(SUIT_SYMBOLS[card.suit], cx, pad + rankPx + suitPx * 0.45);
+  };
+  ctx.save();
+  ctx.translate(box.x, box.y);
+  drawCorner();
+  if (big) {
+    ctx.translate(box.w, box.h);
+    ctx.rotate(Math.PI);
+    drawCorner();
+  }
+  ctx.restore();
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${Math.round(r.w * 0.62)}px ${FONT}`;
-  ctx.fillText(SUIT_SYMBOLS[card.suit], box.x + r.w / 2, box.y + r.h * 0.62);
+  ctx.font = `${Math.round(r.w * (big ? 0.5 : 0.52))}px ${FONT}`;
+  ctx.fillText(
+    SUIT_SYMBOLS[card.suit],
+    box.x + r.w / 2 + (big ? 0 : r.w * 0.06),
+    box.y + r.h * (big ? 0.52 : 0.64),
+  );
   ctx.restore();
 }
 
@@ -145,13 +196,13 @@ export function drawCardBack(
   r: Rect,
   style: CardStyle = {},
 ): void {
-  const box = { ...r, y: style.selected ? r.y - 14 : r.y };
+  const box = { ...r, y: style.selected ? r.y - liftOf(r) : r.y };
   ctx.save();
   if (style.dim) ctx.globalAlpha = 0.55;
   ctx.shadowColor = "rgba(0,0,0,0.45)";
-  ctx.shadowBlur = 6;
+  ctx.shadowBlur = Math.max(5, r.w * 0.1);
   ctx.shadowOffsetY = 2;
-  roundRect(ctx, box, 6);
+  roundRect(ctx, box, Math.max(5, r.w * 0.09));
   ctx.fillStyle = "#1a1a3a";
   ctx.fill();
   ctx.shadowColor = "transparent";
@@ -160,12 +211,18 @@ export function drawCardBack(
   ctx.stroke();
 
   // Trama interior en rombos.
-  const inner = { x: box.x + 5, y: box.y + 5, w: box.w - 10, h: box.h - 10 };
+  const inset = Math.max(3, r.w * 0.07);
+  const inner = {
+    x: box.x + inset,
+    y: box.y + inset,
+    w: box.w - 2 * inset,
+    h: box.h - 2 * inset,
+  };
   roundRect(ctx, inner, 3);
   ctx.clip();
   ctx.strokeStyle = "rgba(0,245,255,0.35)";
   ctx.lineWidth = 1;
-  const step = 10;
+  const step = Math.max(7, r.w * 0.12);
   for (let d = -inner.h; d < inner.w + inner.h; d += step) {
     ctx.beginPath();
     ctx.moveTo(inner.x + d, inner.y);
@@ -258,6 +315,7 @@ export function drawText(
     color?: string;
     align?: CanvasTextAlign;
     bold?: boolean;
+    maxWidth?: number; // si no cabe, el texto se comprime en vez de salirse
   } = {},
 ): void {
   ctx.save();
@@ -265,15 +323,32 @@ export function drawText(
   ctx.fillStyle = opts.color ?? COLOR_INK;
   ctx.textAlign = opts.align ?? "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, x, y);
+  if (opts.maxWidth) ctx.fillText(text, x, y, opts.maxWidth);
+  else ctx.fillText(text, x, y);
   ctx.restore();
 }
 
-// Cartas de un panel de CPU: dorsos solapados, o abiertas y separadas en el duelo.
+// Tamaño de las cartas de un panel de rival: lo que quepa en su alto y en su ancho,
+// con las cartas abiertas solapadas en abanico.
+export function seatCardSize(panel: Rect): { w: number; h: number } {
+  const hCap = Math.min(Math.max(panel.h - 62, 32), 60);
+  const w = Math.min((panel.w - 8) / 3.2, hCap * 0.7);
+  return { w, h: w / 0.7 };
+}
+
+// Cartas de un panel de rival: dorsos solapados, o abiertas (más separadas) en el duelo y el sorteo.
 export function seatCardRects(r: Rect, count: number, faceUp: boolean): Rect[] {
-  const w = faceUp ? 26 : 22;
-  const h = faceUp ? 38 : 32;
-  return cardRowRects(count, r.x + r.w / 2, r.y + 50, w, h, faceUp ? 3 : -8);
+  const { w, h } = seatCardSize(r);
+  const step = w * (faceUp ? 0.55 : 0.4);
+  const free = r.h - 62 - h;
+  return cardRowRects(
+    count,
+    r.x + r.w / 2,
+    r.y + 44 + Math.max(0, free / 2),
+    w,
+    h,
+    step - w,
+  );
 }
 
 // Panel de una CPU: nombre, vidas, cartas ocultas (o abiertas en el duelo) y última jugada.
@@ -285,8 +360,8 @@ export function drawSeat(
   const cx = r.x + r.w / 2;
   ctx.save();
   if (seat.eliminated) ctx.globalAlpha = 0.4;
-  roundRect(ctx, r, 8);
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  roundRect(ctx, r, 10);
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.fill();
   ctx.lineWidth = seat.active || seat.loser ? 3 : 1;
   ctx.strokeStyle = seat.loser
@@ -301,7 +376,7 @@ export function drawSeat(
     bold: true,
     color: seat.active ? COLOR_YELLOW : COLOR_INK,
   });
-  drawLives(ctx, seat.lives, cx, r.y + 34, 14);
+  drawLives(ctx, seat.lives, cx, r.y + SEAT_LIVES_Y, 14);
 
   const count = seat.hand ? seat.hand.length : seat.cardCount;
   if (count > 0) {
@@ -318,13 +393,16 @@ export function drawSeat(
 
   const caption = seat.eliminated ? "ELIMINADO" : (seat.caption ?? "");
   if (caption) {
-    drawText(ctx, caption, cx, r.y + r.h - 14, {
+    drawText(ctx, caption, cx, r.y + r.h - 12, {
       size: 11,
       color: seat.eliminated ? COLOR_DIM : COLOR_CYAN,
     });
   }
   ctx.restore();
 }
+
+// Altura de la fila de vidas dentro del panel de un rival (el nombre va en y + 14).
+export const SEAT_LIVES_Y = 32;
 
 export function drawButton(
   ctx: CanvasRenderingContext2D,
@@ -335,14 +413,14 @@ export function drawButton(
   const color = style.color ?? COLOR_YELLOW;
   ctx.save();
   if (style.disabled) ctx.globalAlpha = 0.35;
-  roundRect(ctx, r, 6);
-  ctx.fillStyle = style.hover && !style.disabled ? color : "rgba(0,0,0,0.5)";
+  roundRect(ctx, r, 8);
+  ctx.fillStyle = style.hover && !style.disabled ? color : "rgba(0,0,0,0.55)";
   ctx.fill();
   ctx.lineWidth = 2;
   ctx.strokeStyle = color;
   ctx.stroke();
   drawText(ctx, label, r.x + r.w / 2, r.y + r.h / 2 + 1, {
-    size: 14,
+    size: LAYOUT_MODE === "portrait" ? 15 : 14,
     bold: true,
     color: style.hover && !style.disabled ? COLOR_BLACK_SUIT : color,
   });
@@ -355,14 +433,15 @@ export function drawBanner(
   lines: readonly string[],
   y: number,
   color: string = COLOR_YELLOW,
+  x = 0, // margen lateral: en apaisado deja libres los paneles de los lados
 ): void {
   const h = 18 + lines.length * 22;
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(0, y - h / 2, W, h);
+  ctx.fillRect(x, y - h / 2, W - 2 * x, h);
   lines.forEach((line, i) => {
     drawText(ctx, line, W / 2, y - h / 2 + 19 + i * 22, {
-      size: i === 0 ? 18 : 13,
+      size: i === 0 ? (LAYOUT_MODE === "portrait" ? 15 : 18) : 13,
       bold: i === 0,
       color: i === 0 ? color : COLOR_INK,
     });

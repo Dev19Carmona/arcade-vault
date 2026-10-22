@@ -11,20 +11,15 @@ import {
   CPU_THINK_MAX,
   CPU_THINK_MIN,
   HAND_SIZE,
-  HAND_Y,
   HUMAN_SEAT,
+  LAYOUT_MODE,
   LIVES,
   MAX_DT,
   SEATS,
   W,
-  WIDOW_CARD_H,
-  WIDOW_CARD_W,
-  WIDOW_GAP,
-  WIDOW_Y,
 } from "./constants";
 import {
   buttonRowRects,
-  cardRowRects,
   drawBanner,
   drawButton,
   drawCardPosed,
@@ -74,6 +69,14 @@ import {
   visualToRules,
   type HandOrder,
 } from "./hand-order";
+import {
+  localAnchors,
+  ownCardRects,
+  panelBadgeAnchor,
+  panelHeartAnchor,
+  tableLabels,
+  widowCardRects,
+} from "./online/geometry";
 import { opponentRects, relativeSeat } from "./online/layout";
 import type { OnlineAction } from "./online/protocol";
 import {
@@ -120,7 +123,7 @@ export function createViudaEngine({
   // Los rivales se numeran en orden de turno a partir del asiento local.
   const seatName = (i: number) =>
     i === localSeat ? "TÚ" : `CPU ${relativeSeat(i, localSeat, seatCount)}`;
-  const opponents = opponentRects(seatCount);
+  const opponents = () => opponentRects(seatCount);
   const seatIds = Array.from({ length: seatCount }, (_, i) => `seat-${i}`);
   const random = () => Math.random();
   const newGame = () =>
@@ -163,7 +166,7 @@ export function createViudaEngine({
         widowSlot,
       };
     }
-    const panel = opponents[relativeSeat(seat, localSeat, seatCount) - 1];
+    const panel = seatPanel(seat);
     const cards = seatCardRects(panel, HAND_SIZE, false);
     return {
       seatUp: false,
@@ -174,28 +177,26 @@ export function createViudaEngine({
 
   // Panel de un asiento: el del jugador local es la zona de «TÚ» y las vidas.
   function seatPanel(seat: number): Rect {
-    if (seat === localSeat) return { x: 36, y: HAND_Y + 14, w: 68, h: 52 };
-    return opponents[relativeSeat(seat, localSeat, seatCount) - 1];
+    if (seat === localSeat) return localAnchors().panel;
+    return opponents()[relativeSeat(seat, localSeat, seatCount) - 1];
   }
 
   // Dónde se dibuja el cartel de la jugada de un asiento y su marca de llamador.
   function badgeAnchor(seat: number): BadgeAnchor {
     if (seat === localSeat) {
-      return { x: W / 2, y: HAND_Y - 58, tag: { x: 70, y: HAND_Y + 8 } };
+      const { badge, tag } = localAnchors();
+      return { ...badge, tag };
     }
-    const r = seatPanel(seat);
-    return {
-      x: r.x + r.w / 2,
-      y: r.y + 66,
-      tag: { x: r.x + r.w - 32, y: r.y + 14 },
-    };
+    return panelBadgeAnchor(seatPanel(seat));
   }
 
   // Centro del corazón `index` de la fila de vidas de un asiento.
   function heartPos(seat: number, index: number) {
-    if (seat === localSeat) return lifeHeartPos(index, 70, HAND_Y + 54);
-    const r = seatPanel(seat);
-    return lifeHeartPos(index, r.x + r.w / 2, r.y + 34);
+    if (seat === localSeat) {
+      const { hearts } = localAnchors();
+      return lifeHeartPos(index, hearts.x, hearts.y);
+    }
+    return panelHeartAnchor(seatPanel(seat), index);
   }
 
   // Sorteo inicial: una carta del mazo a cada asiento, de cara.
@@ -286,6 +287,16 @@ export function createViudaEngine({
             mine ? "LLAMASTE" : "LLAMÓ",
           ),
         );
+        // Si el turno llega a quien abrió la ronda con la viuda cerrada, se voltea.
+        if (!prev.widowOpen && next.widowOpen) {
+          const widow = widowRects();
+          fx.enqueue(
+            widowFlipScene(
+              widow.map((rect, k) => ({ key: `widow:${k}`, rect })),
+              next.widow,
+            ),
+          );
+        }
       } else if (event.kind === "swap1") {
         const moves = swap1Moves(
           swapLayout(event.seat),
@@ -530,20 +541,8 @@ export function createViudaEngine({
     return list;
   }
 
-  function ownRects(count = HAND_SIZE): Rect[] {
-    return cardRowRects(count, W / 2, HAND_Y, CARD_W, CARD_H, CARD_GAP);
-  }
-
-  function widowRects(): Rect[] {
-    return cardRowRects(
-      HAND_SIZE,
-      W / 2,
-      WIDOW_Y,
-      WIDOW_CARD_W,
-      WIDOW_CARD_H,
-      WIDOW_GAP,
-    );
-  }
+  const ownRects = ownCardRects;
+  const widowRects = widowCardRects;
 
   // Un clic o una tecla durante una animación la termina en vez de actuar.
   function skipFx(): boolean {
@@ -669,7 +668,9 @@ export function createViudaEngine({
       if (!state.widowOpen) {
         return "TU TURNO · viuda cerrada: cambia las 5 cartas, pasa o llama";
       }
-      return "TU TURNO · viuda abierta: cambia las 5, o elige 1 carta tuya y 1 de la viuda";
+      return LAYOUT_MODE === "portrait"
+        ? "TU TURNO · cambia 5, o 1 tuya por 1 de la viuda"
+        : "TU TURNO · viuda abierta: cambia las 5, o elige 1 carta tuya y 1 de la viuda";
     }
     const lastLap =
       state.caller !== null ? " (última vuelta tras la llamada)" : "";
@@ -736,7 +737,7 @@ export function createViudaEngine({
     for (let i = 0; i < seatCount; i++) {
       if (i === localSeat) continue;
       const seat = state.seats[i];
-      const rect = opponents[relativeSeat(i, localSeat, seatCount) - 1];
+      const rect = seatPanel(i);
       // En el duelo, las manos se abren con la animación; hasta entonces siguen de dorso.
       const showHand =
         (phase === "showdown" && !fx.isLocked()) || phase === "final";
@@ -764,7 +765,7 @@ export function createViudaEngine({
     }
 
     // La viuda.
-    drawText(ctx, "LA VIUDA", W / 2, WIDOW_Y - 30, {
+    drawText(ctx, "LA VIUDA", W / 2, tableLabels().widowLabelY, {
       size: 13,
       bold: true,
       color: COLOR_DIM,
@@ -824,25 +825,29 @@ export function createViudaEngine({
         );
       }
     }
-    if (phase === "turn" || phase === "showdown") {
+    const mine = localAnchors();
+    if (mine.label && (phase === "turn" || phase === "showdown")) {
       drawText(
         ctx,
         me.caption && phase === "turn" ? `TÚ · ${me.caption}` : "TUS CARTAS",
-        W / 2,
-        HAND_Y - 26,
+        mine.label.x,
+        mine.label.y,
         { size: 12, color: COLOR_DIM },
       );
     }
-    drawText(ctx, "TÚ", 70, HAND_Y + 30, {
+    drawText(ctx, "TÚ", mine.name.x, mine.name.y, {
       size: 14,
       bold: true,
       color: myTurn() ? COLOR_YELLOW : undefined,
     });
-    drawLives(ctx, livesShown(localSeat), 70, HAND_Y + 54);
-    drawText(ctx, `RONDA ${Math.max(state.round, 1)}`, W - 70, HAND_Y + 30, {
-      size: 12,
-      color: COLOR_DIM,
-    });
+    drawLives(ctx, livesShown(localSeat), mine.hearts.x, mine.hearts.y);
+    drawText(
+      ctx,
+      `RONDA ${Math.max(state.round, 1)}`,
+      mine.round.x,
+      mine.round.y,
+      { size: 12, color: COLOR_DIM },
+    );
 
     drawFlights(ctx, fx);
     drawEffects(ctx, fx);
@@ -850,21 +855,25 @@ export function createViudaEngine({
     // Turno y jugadas: aro en el asiento activo, carteles, marca del llamador y última vuelta.
     if (phase === "turn") drawTurnPulse(ctx, seatPanel(state.current), fx.now);
     if (phase === "turn" && state.caller !== null) {
-      drawLastLapBorder(ctx, fx.now);
-      drawLastLap(ctx, W / 2, 176, fx.now);
+      const lap = tableLabels().lastLap;
+      drawLastLap(ctx, lap.x, lap.y, fx.now);
     }
     drawBadges(ctx, fx, badgeAnchor);
 
     // Estado y mensajes.
     const status = statusText();
     if (status) {
-      drawText(ctx, status, W / 2, WIDOW_Y + WIDOW_CARD_H + 28, {
+      drawText(ctx, status, W / 2, tableLabels().statusY, {
         size: 13,
+        maxWidth: tableLabels().statusW,
         color: myTurn() ? COLOR_YELLOW : COLOR_CYAN,
       });
     }
     const message = banner();
-    if (message) drawBanner(ctx, message.lines, 360, message.color);
+    if (message) {
+      const { bannerX, bannerY } = tableLabels();
+      drawBanner(ctx, message.lines, bannerY, message.color, bannerX);
+    }
 
     // Botones.
     const views = buttons();

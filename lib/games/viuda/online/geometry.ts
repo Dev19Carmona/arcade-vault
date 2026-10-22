@@ -4,19 +4,26 @@ import {
   CARD_W,
   HAND_SIZE,
   HAND_Y,
+  LAYOUT_MODE,
   W,
   WIDOW_CARD_H,
   WIDOW_CARD_W,
   WIDOW_GAP,
   WIDOW_Y,
 } from "../constants";
-import { cardRowRects, lifeHeartPos } from "../entities";
+import {
+  cardRowRects,
+  lifeHeartPos,
+  SEAT_LIVES_Y,
+  seatCardRects,
+} from "../entities";
 import type { BadgeAnchor } from "../fx/draw";
 import type { Rect } from "../types";
 import { opponentRects, relativeSeat } from "./layout";
 
-// Posiciones de la mesa en línea que comparten el dibujo (table-view) y las animaciones
-// (table-fx). Todo en coordenadas lógicas del canvas 800×600.
+// Posiciones de la mesa que comparten el dibujo (motor VS CPU y table-view) y las
+// animaciones (table-fx). Todo en coordenadas lógicas del canvas vigente (apaisado
+// 800×600 o vertical 400×720): son funciones porque dependen del modo.
 
 export function ownCardRects(count = HAND_SIZE): Rect[] {
   return cardRowRects(count, W / 2, HAND_Y, CARD_W, CARD_H, CARD_GAP);
@@ -33,27 +40,53 @@ export function widowCardRects(): Rect[] {
   );
 }
 
-// Cartas de un rival: dorsos solapados, o abiertas y separadas en el duelo y el sorteo.
-// Las medidas salen del alto del panel, que es menor con 7 u 8 rivales.
+// Cartas de un rival: dorsos solapados, o abiertas en el duelo y el sorteo.
 export function onlineSeatCardRects(
   panel: Rect,
   count: number,
   faceUp: boolean,
 ): Rect[] {
-  const w = faceUp ? 26 : 22;
-  const h = faceUp ? 38 : 32;
-  return cardRowRects(
-    count,
-    panel.x + panel.w / 2,
-    panel.y + 44,
-    w,
-    h,
-    faceUp ? 3 : -8,
-  );
+  return seatCardRects(panel, count, faceUp);
 }
 
-// Zona de «nombre y vidas» del jugador local: lo que late en su turno.
-export const LOCAL_PANEL: Rect = { x: 36, y: HAND_Y + 14, w: 68, h: 52 };
+// Rótulos y avisos de la mesa que no son de un asiento concreto.
+export function tableLabels() {
+  const portrait = LAYOUT_MODE === "portrait";
+  return {
+    widowLabelY: WIDOW_Y - 22,
+    statusY: WIDOW_Y + WIDOW_CARD_H + (portrait ? 22 : 26),
+    lastLap: { x: W / 2, y: portrait ? 440 : 320 },
+    bannerY: portrait ? 430 : 326,
+    bannerX: portrait ? 8 : 184,
+    statusW: portrait ? W - 16 : W - 2 * 184, // ancho del texto de estado: entre los paneles laterales
+  };
+}
+
+// Dónde va el jugador local: nombre, vidas, ronda y rótulo de su mano. En el lienzo vertical
+// la mano ocupa todo el ancho y esos datos se reparten en una fila sobre ella (sin rótulo).
+export function localAnchors() {
+  if (LAYOUT_MODE === "portrait") {
+    const y = HAND_Y - 24;
+    return {
+      panel: { x: 8, y: y - 16, w: 140, h: 32 },
+      name: { x: 48, y },
+      hearts: { x: 112, y },
+      round: { x: W - 44, y },
+      label: null,
+      badge: { x: W / 2, y: HAND_Y - 44 },
+      tag: { x: 24, y: y - 16 },
+    };
+  }
+  return {
+    panel: { x: 16, y: HAND_Y + 24, w: 104, h: 62 },
+    name: { x: 68, y: HAND_Y + 40 },
+    hearts: { x: 68, y: HAND_Y + 66 },
+    round: { x: W - 68, y: HAND_Y + 40 },
+    label: { x: W / 2, y: HAND_Y - 30 },
+    badge: { x: W / 2, y: HAND_Y - 50 },
+    tag: { x: 68, y: HAND_Y + 18 },
+  };
+}
 
 // Panel de un rival visto desde el asiento `localIndex` (índices de `table.seats`).
 export function rivalPanel(
@@ -71,7 +104,7 @@ export function seatPanel(
   index: number,
 ): Rect {
   return index === localIndex
-    ? LOCAL_PANEL
+    ? localAnchors().panel
     : rivalPanel(count, localIndex, index);
 }
 
@@ -82,13 +115,18 @@ export function badgeAnchor(
   index: number,
 ): BadgeAnchor {
   if (index === localIndex) {
-    return { x: W / 2, y: HAND_Y - 58, tag: { x: 70, y: HAND_Y + 8 } };
+    const { badge, tag } = localAnchors();
+    return { ...badge, tag };
   }
-  const r = rivalPanel(count, localIndex, index);
+  return panelBadgeAnchor(rivalPanel(count, localIndex, index));
+}
+
+// Cartel y marca de un panel de rival: el cartel sobre sus cartas, la marca en la esquina.
+export function panelBadgeAnchor(r: Rect): BadgeAnchor {
   return {
     x: r.x + r.w / 2,
-    y: r.y + 60,
-    tag: { x: r.x + r.w - 32, y: r.y + 13 },
+    y: r.y + r.h * 0.55,
+    tag: { x: r.x + r.w - 30, y: r.y + 14 },
   };
 }
 
@@ -100,8 +138,18 @@ export function heartAnchor(
   life: number,
 ): { x: number; y: number; size: number } {
   if (index === localIndex) {
-    return { ...lifeHeartPos(life, 70, HAND_Y + 54, 14), size: 14 };
+    const { hearts } = localAnchors();
+    return { ...lifeHeartPos(life, hearts.x, hearts.y, 14), size: 14 };
   }
-  const r = rivalPanel(count, localIndex, index);
-  return { ...lifeHeartPos(life, r.x + r.w / 2, r.y + 30, 13), size: 13 };
+  return panelHeartAnchor(rivalPanel(count, localIndex, index), life);
+}
+
+export function panelHeartAnchor(
+  r: Rect,
+  life: number,
+): { x: number; y: number; size: number } {
+  return {
+    ...lifeHeartPos(life, r.x + r.w / 2, r.y + SEAT_LIVES_Y, 14),
+    size: 14,
+  };
 }
