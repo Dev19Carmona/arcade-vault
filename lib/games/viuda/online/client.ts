@@ -1,16 +1,20 @@
 import { createClient } from "@/lib/supabase/client";
 import { setStatus } from "@/lib/supabase/rooms";
 import {
+  EVENT_BACKUP,
   EVENT_CLIENT,
+  EVENT_CLOSED,
   EVENT_HAND,
   EVENT_REJECT,
   EVENT_TABLE,
   handChannelName,
+  isHostBackup,
   isPrivateHand,
   isPublicTable,
   isRejectMessage,
   roomChannelName,
   type ClientMessage,
+  type HostBackup,
   type JoinRejection,
   type OnlineAction,
   type PrivateHand,
@@ -24,6 +28,15 @@ const JOIN_MAX_ATTEMPTS = 5;
 const REJOIN_RETRY_MS = 3000;
 // Margen antes de dar por caído al anfitrión: presence puede soltar un `leave` falso al sincronizarse.
 const HOST_GRACE_MS = 4000;
+// Cuánto se espera a que un anfitrión caído vuelva (el móvil se bloquea, la pestaña se
+// congela…) antes de pasar la sala al siguiente jugador.
+export const HOST_TIMEOUT_MS = 120_000;
+// Pasado ese plazo, el relevo se reintenta cada pocos segundos mientras otro candidato
+// anterior de la lista toma la sala; si nadie la toma, la sala se cierra.
+const TAKEOVER_RETRY_MS = 5000;
+const TAKEOVER_ATTEMPTS = 6;
+// A partir de este intento se relevan también los candidatos que van detrás de uno que no responde.
+const TAKEOVER_RELAX_AT = 3;
 
 // Avisos que no cierran la sesión: el jugador espera y el cliente sigue reintentando.
 export type RoomNotice = "running" | "reconnecting";
@@ -38,6 +51,8 @@ export interface ClientSessionOptions {
   onHand: (hand: PrivateHand) => void;
   onRejected: (reason: Exclude<JoinRejection, "running">) => void; // definitivo
   onNotice: (notice: RoomNotice | null) => void;
+  onHostAway: (until: number | null) => void; // el anfitrión no responde: hora (ms) en que se hace el relevo
+  onPromote: (backup: HostBackup) => void; // este jugador pasa a ser el anfitrión
   onHostLeft: () => void;
   onError: (message: string) => void;
 }
@@ -64,7 +79,15 @@ export function createClientSession(
 
   let hostId = options.hostId;
   let lastSeq = -1;
+  let lastTerm = 0;
   let lastHandSeq = -1;
+  // Copia del estado del anfitrión (solo la reciben los `backupIds`) y quiénes la guardan.
+  let backup: HostBackup | null = null;
+  let backupIds: string[] = [];
+  let awayUntil: number | null = null;
+  let awayTimer: ReturnType<typeof setTimeout> | null = null;
+  let takeoverAttempts = 0;
+  let promoted = false;
   // `member`: el anfitrión me ha incluido alguna vez en la mesa.
   // `admitted`: ahora mismo me ve conectado.
   let member = false;
@@ -113,10 +136,58 @@ export function createClientSession(
   }
 
   function hostPresent(): boolean {
-    return hostId !== null && hostId in channel.presenceState();
+    // Un anfitrión que recargó la pestaña se ve a sí mismo en presence, pero ya no manda.
+    return (
+      hostId !== null && hostId !== playerId && hostId in channel.presenceState()
+    );
   }
 
-  // Sala cerrada para todos: no hay migración de anfitrión.
+  // El anfitrión no responde: se le espera y, si no vuelve, lo releva el siguiente de la lista.
+  function startAway() {
+    if (disposed || promoted || awayUntil !== null) return;
+    awayUntil = Date.now() + HOST_TIMEOUT_MS;
+    takeoverAttempts = 0;
+    options.onHostAway(awayUntil);
+    awayTimer = setTimeout(takeover, HOST_TIMEOUT_MS);
+  }
+
+  function cancelAway() {
+    if (awayUntil === null) return;
+    awayUntil = null;
+    takeoverAttempts = 0;
+    if (awayTimer) clearTimeout(awayTimer);
+    awayTimer = null;
+    options.onHostAway(null);
+  }
+
+  function takeover() {
+    awayTimer = null;
+    if (disposed || promoted) return;
+    // Si mi propia conexión no está al día, presence no es fiable: se vuelve a mirar luego.
+    if (channel.state !== "joined") return retryTakeover();
+    if (hostPresent()) return cancelAway();
+    const present = channel.presenceState();
+    const rank = backupIds.indexOf(playerId);
+    // Solo toma la sala quien guarda la copia y no tiene delante a un candidato conectado.
+    const eligible =
+      backup !== null &&
+      rank >= 0 &&
+      (takeoverAttempts >= TAKEOVER_RELAX_AT ||
+        backupIds.slice(0, rank).every((id) => !(id in present)));
+    if (eligible && backup) {
+      promoted = true;
+      options.onPromote(backup);
+      return;
+    }
+    retryTakeover();
+  }
+
+  function retryTakeover() {
+    if (++takeoverAttempts >= TAKEOVER_ATTEMPTS) return hostLeft();
+    awayTimer = setTimeout(takeover, TAKEOVER_RETRY_MS);
+  }
+
+  // Sala cerrada para todos: nadie pudo relevar al anfitrión.
   function hostLeft() {
     if (disposed) return;
     // Mejor esfuerzo: que la sala no siga figurando como en curso.
@@ -131,18 +202,24 @@ export function createClientSession(
       hostTimer = null;
       // Si nuestra propia conexión no está al día, presence no es fiable.
       if (disposed || channel.state !== "joined" || hostPresent()) return;
-      hostLeft();
+      startAway();
     }, HOST_GRACE_MS);
   }
 
   channel.on("broadcast", { event: EVENT_TABLE }, ({ payload }) => {
-    if (disposed || !isPublicTable(payload) || payload.seq <= lastSeq) return;
+    if (disposed || promoted || !isPublicTable(payload)) return;
+    // Un anfitrión desbancado puede seguir publicando al volver: su `term` es menor.
+    const term = payload.term ?? 0;
+    if (term < lastTerm || (term === lastTerm && payload.seq <= lastSeq)) return;
     const me = payload.seats.find((seat) => seat.playerId === playerId);
     // Solo cuenta como admitido si el anfitrión lo incluye en la mesa; antes de eso,
     // las mesas son de otros jugadores y no se muestran.
     if (!me && !member) return;
     lastSeq = payload.seq;
+    lastTerm = term;
     hostId = payload.hostId;
+    backupIds = payload.backupIds ?? [];
+    cancelAway();
     if (me) {
       member = true;
       if (me.connected) {
@@ -177,6 +254,12 @@ export function createClientSession(
     onRejected(payload.reason);
   });
 
+  // El anfitrión avisa antes de cerrar la sala a propósito: no hay nada que esperar.
+  channel.on("broadcast", { event: EVENT_CLOSED }, () => hostLeft());
+
+  channel.on("presence", { event: "join" }, ({ key }) => {
+    if (key === hostId && key !== playerId) cancelAway();
+  });
   channel.on("presence", { event: "leave" }, ({ key }) => {
     if (key === hostId) scheduleHostCheck();
   });
@@ -190,6 +273,12 @@ export function createClientSession(
     }
     lastHandSeq = payload.seq;
     onHand(payload);
+  });
+  handChannel.on("broadcast", { event: EVENT_BACKUP }, ({ payload }) => {
+    if (disposed || !isHostBackup(payload)) return;
+    if (!backup || payload.term > backup.term || payload.seq > backup.seq) {
+      backup = payload;
+    }
   });
   handChannel.subscribe();
 
@@ -218,6 +307,8 @@ export function createClientSession(
     if (disposed) return;
     disposed = true;
     stopRetry();
+    if (awayTimer) clearTimeout(awayTimer);
+    awayTimer = null;
     if (hostTimer) clearTimeout(hostTimer);
     hostTimer = null;
     await Promise.all([
@@ -228,7 +319,10 @@ export function createClientSession(
 
   return {
     act(action) {
-      if (!disposed) send({ kind: "action", playerId, action });
+      // Con el anfitrión caído nadie valida la acción: se descarta.
+      if (!disposed && awayUntil === null) {
+        send({ kind: "action", playerId, action });
+      }
     },
     async leave() {
       if (!disposed) send({ kind: "leave", playerId });

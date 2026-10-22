@@ -10,7 +10,7 @@ import {
   loadSession,
   readAlias,
 } from "@/lib/games/viuda/online/identity";
-import { findRoom, setStatus } from "@/lib/supabase/rooms";
+import { findRoom } from "@/lib/supabase/rooms";
 
 type View =
   | { name: "select" }
@@ -49,7 +49,7 @@ export function ViudaGame(props: GameCanvasProps) {
     findRoom(session.code)
       .then((room) => {
         if (cancelled) return;
-        if (room?.status === "playing" && room.host_id !== session.playerId) {
+        if (room?.status === "playing") {
           setView((current) =>
             current.name === "select"
               ? {
@@ -67,11 +67,8 @@ export function ViudaGame(props: GameCanvasProps) {
           );
           return;
         }
-        // Sala en espera, cerrada o propia: no hay asiento al que volver. Si era la
-        // del anfitrión que recargó, la sala se cierra (no hay migración de anfitrión).
-        if (room?.host_id === session.playerId && room.status !== "closed") {
-          void setStatus(session.code, "closed").catch(() => {});
-        }
+        // Sala en espera o cerrada: no hay asiento al que volver. Un anfitrión que recarga
+        // en plena partida vuelve como jugador: tras la espera, otro jugador toma la sala.
         clearSession();
       })
       .catch(() => {});

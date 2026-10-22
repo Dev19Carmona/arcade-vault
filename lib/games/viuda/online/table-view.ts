@@ -33,6 +33,7 @@ import {
   drawEffects,
   drawFlights,
   drawLastLap,
+  drawLastLapBorder,
   drawTurnPulse,
 } from "../fx/draw";
 import { visualIndices, type HandDrag, type HandOrder } from "../hand-order";
@@ -68,6 +69,7 @@ export interface OnlineView {
   pointer: { x: number; y: number }; // coordenadas lógicas
   secondsLeft: number | null; // cuenta atrás hasta que avanza solo el sorteo o el duelo
   notice: "running" | "reconnecting" | null; // aviso de mi conexión
+  hostAwayLeft: number | null; // segundos hasta el relevo si el anfitrión no responde
   fx: TableFx; // animaciones en curso
   locked: boolean; // hay animación en curso o pendiente: mi turno y CONTINUAR esperan
   order: HandOrder; // orden visual de mi mano (solo local)
@@ -794,7 +796,8 @@ export function drawOnlineTable(
   );
 
   // Animaciones: cartas en vuelo, corazón roto, aro del turno, última vuelta y carteles.
-  const veiled = table.paused || (me && !me.connected);
+  const veiled =
+    view.hostAwayLeft !== null || table.paused || (me && !me.connected);
   drawFlights(ctx, tl);
   drawEffects(ctx, tl);
   if (phase === "turn" && !veiled) {
@@ -823,7 +826,19 @@ export function drawOnlineTable(
   if (banner) drawBannerBox(ctx, banner.lines, banner.color);
 
   // Pausa o desconexión: velo sobre la mesa; los botones se dibujan encima.
-  if (table.paused) {
+  if (view.hostAwayLeft !== null) {
+    const m = Math.floor(view.hostAwayLeft / 60);
+    const sec = String(view.hostAwayLeft % 60).padStart(2, "0");
+    drawVeil(
+      ctx,
+      [
+        "ANFITRIÓN SIN CONEXIÓN",
+        `Esperando a que vuelva · ${m}:${sec}`,
+        "Si no vuelve, otro jugador será el anfitrión.",
+      ],
+      COLOR_MAGENTA,
+    );
+  } else if (table.paused) {
     drawVeil(
       ctx,
       [

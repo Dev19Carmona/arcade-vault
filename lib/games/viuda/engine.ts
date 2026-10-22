@@ -38,6 +38,7 @@ import {
   drawEffects,
   drawFlights,
   drawLastLap,
+  drawLastLapBorder,
   drawTurnPulse,
   type BadgeAnchor,
 } from "./fx/draw";

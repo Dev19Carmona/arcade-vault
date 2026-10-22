@@ -1,3 +1,4 @@
+import type { RulesState } from "../rules";
 import type { Card, GameEvent } from "../types";
 
 // Acciones que un jugador puede pedir en su turno. Las usa el núcleo de reglas
@@ -85,6 +86,22 @@ export interface PublicTable {
   // ignora y uno nuevo sin él (p. ej. tras `rejoin`) no anima. Se repite en cada mesa hasta
   // la siguiente transición, así que el cliente se queda con los que no vio (`n` nuevo).
   events?: PublicEvent[];
+  // Relevo del anfitrión. `term` sube en cada relevo: un anfitrión con `term` menor está
+  // desbancado. `backupIds` son los jugadores (por orden) que guardan la copia del estado y
+  // pueden tomar la sala si el anfitrión no vuelve. Opcionales por compatibilidad.
+  term?: number;
+  backupIds?: string[];
+}
+
+// Copia completa del estado del anfitrión (incluye todas las manos). Solo viaja, por su
+// canal de mano, a los jugadores de `backupIds`, para que uno de ellos pueda seguir la sala.
+export interface HostBackup {
+  seq: number;
+  term: number;
+  players: { playerId: string; name: string }[];
+  game: RulesState | null;
+  removed: string[];
+  advanceRemainingMs: number | null; // lo que faltaba para que avanzara solo el sorteo o el duelo
 }
 
 // Host → un jugador (canal de mano)
@@ -107,6 +124,8 @@ export const EVENT_CLIENT = "client";
 export const EVENT_TABLE = "table";
 export const EVENT_REJECT = "reject";
 export const EVENT_HAND = "hand";
+export const EVENT_BACKUP = "backup"; // canal de mano: copia del estado para el relevo
+export const EVENT_CLOSED = "closed"; // canal público: el anfitrión cierra la sala a propósito
 
 export const roomChannelName = (code: string) => `viuda:room:${code}`;
 export const handChannelName = (code: string, playerId: string) =>
@@ -199,5 +218,18 @@ export function isPrivateHand(value: unknown): value is PrivateHand {
     typeof h.seq === "number" &&
     Array.isArray(h.hand) &&
     (h.taken === null || Array.isArray(h.taken))
+  );
+}
+
+export function isHostBackup(value: unknown): value is HostBackup {
+  if (!value || typeof value !== "object") return false;
+  const b = value as Partial<HostBackup>;
+  return (
+    typeof b.seq === "number" &&
+    typeof b.term === "number" &&
+    Array.isArray(b.players) &&
+    Array.isArray(b.removed) &&
+    (b.game === null ||
+      (typeof b.game === "object" && Array.isArray(b.game?.seats)))
   );
 }

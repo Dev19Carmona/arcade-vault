@@ -35,6 +35,8 @@ export function OnlineRoom({
     hand,
     failure,
     notice,
+    hostAwayUntil,
+    isHost,
     start,
     act,
     continueGame,
@@ -102,7 +104,8 @@ export function OnlineRoom({
         code={room.code}
         table={table}
         playerId={room.playerId}
-        isHost={room.isHost}
+        isHost={isHost}
+        hostAwayUntil={hostAwayUntil}
         starting={starting}
         onStart={() => void handleStart()}
         onLeave={exit}
@@ -115,8 +118,9 @@ export function OnlineRoom({
       table={table}
       hand={hand}
       playerId={room.playerId}
-      isHost={room.isHost}
+      isHost={isHost}
       notice={notice}
+      hostAwayUntil={hostAwayUntil}
       onAction={act}
       onContinue={continueGame}
       onPause={pause}

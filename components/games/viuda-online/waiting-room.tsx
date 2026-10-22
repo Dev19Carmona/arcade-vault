@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MAX_PLAYERS, MIN_PLAYERS } from "@/lib/games/viuda/constants";
 import type { PublicTable } from "@/lib/games/viuda/online/protocol";
+import { HostAwayNotice } from "./host-away-notice";
 
 const COPIED_MS = 1500;
 
@@ -11,6 +12,7 @@ export function WaitingRoom({
   table,
   playerId,
   isHost,
+  hostAwayUntil,
   starting,
   onStart,
   onLeave,
@@ -19,6 +21,7 @@ export function WaitingRoom({
   table: PublicTable;
   playerId: string;
   isHost: boolean;
+  hostAwayUntil: number | null; // el anfitrión no responde: hora (ms) del relevo
   starting: boolean;
   onStart: () => void;
   onLeave: () => void;
@@ -57,6 +60,8 @@ export function WaitingRoom({
             SALIR
           </button>
         </header>
+
+        {hostAwayUntil !== null && <HostAwayNotice until={hostAwayUntil} />}
 
         <div className="vd-cols">
           <section className="vd-panel" aria-label="Código de la sala">
@@ -102,7 +107,7 @@ export function WaitingRoom({
                 <p id="vd-start-hint" className="vd-hint">
                   {count < MIN_PLAYERS
                     ? `Faltan jugadores: se necesitan al menos ${MIN_PLAYERS}.`
-                    : "Cuando empiece la partida nadie más podrá entrar. Mantén esta pestaña abierta: si te desconectas, la sala se cierra."}
+                    : "Cuando empiece la partida nadie más podrá entrar. Si pierdes la conexión, la sala te espera 2 minutos antes de pasar a otro anfitrión."}
                 </p>
               </>
             ) : (

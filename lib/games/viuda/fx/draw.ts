@@ -5,6 +5,8 @@ import {
   COLOR_MAGENTA,
   COLOR_YELLOW,
   FONT,
+  H,
+  W,
 } from "../constants";
 import { drawCardPosed } from "../entities";
 import type { Rect } from "../types";
@@ -202,6 +204,38 @@ export function drawTurnPulse(
   ctx.beginPath();
   ctx.roundRect(r.x, r.y, r.w, r.h, 8);
   ctx.stroke();
+  ctx.restore();
+}
+
+// Borde rojo pulsante alrededor de toda la mesa mientras dura la última vuelta.
+export function drawLastLapBorder(
+  ctx: CanvasRenderingContext2D,
+  nowMs: number,
+): void {
+  const p = (Math.sin((nowMs / 1000) * Math.PI * 2 * 1.2) + 1) / 2;
+  const red = "#ff1f3d";
+  const edge = 14;
+  ctx.save();
+  // Resplandor interior: degradado rojo que se desvanece hacia el centro por cada lado.
+  const glow = (x0: number, y0: number, x1: number, y1: number, r: Rect) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, red);
+    g.addColorStop(1, "rgba(255, 31, 61, 0)");
+    ctx.globalAlpha = 0.25 + 0.3 * p;
+    ctx.fillStyle = g;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  };
+  glow(0, 0, 0, 60, { x: 0, y: 0, w: W, h: 60 });
+  glow(0, H, 0, H - 60, { x: 0, y: H - 60, w: W, h: 60 });
+  glow(0, 0, 60, 0, { x: 0, y: 0, w: 60, h: H });
+  glow(W, 0, W - 60, 0, { x: W - 60, y: 0, w: 60, h: H });
+  // Línea del borde.
+  ctx.globalAlpha = 0.7 + 0.3 * p;
+  ctx.strokeStyle = red;
+  ctx.lineWidth = edge / 2;
+  ctx.shadowColor = red;
+  ctx.shadowBlur = 16;
+  ctx.strokeRect(edge / 4, edge / 4, W - edge / 2, H - edge / 2);
   ctx.restore();
 }
 
