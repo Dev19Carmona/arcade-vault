@@ -60,6 +60,7 @@ import {
   type SwapLayout,
 } from "./fx/scenes";
 import { createTimeline } from "./fx/timeline";
+import { chooseCpuAction } from "./cpu";
 import { drawDragIntent, resolveDragIntent } from "./drag-preview";
 import {
   createSwapDrag,
@@ -104,7 +105,7 @@ import type {
   ViudaEngineOptions,
   ViudaSnapshot,
 } from "./types";
-import { cardLabel, evaluateHand, finalScore } from "./utils";
+import { cardLabel, finalScore } from "./utils";
 
 type ButtonId = "continue" | "pass" | "call";
 
@@ -116,12 +117,6 @@ interface ButtonView {
 }
 
 const CONTINUE_KEYS = ["Space", "Enter", "NumpadEnter"];
-
-// Valor continuo de una mano para decidir de las CPU: categoría + carta principal.
-function handScore(cards: readonly Card[]): number {
-  const { category, tiebreak } = evaluateHand(cards);
-  return category + tiebreak[0] / 20;
-}
 
 export function createViudaEngine({
   seatCount = SEATS,
@@ -380,10 +375,6 @@ export function createViudaEngine({
     onChange(snap);
   }
 
-  function aliveCount(): number {
-    return state.seats.filter((s) => s.alive).length;
-  }
-
   function scheduleThink() {
     thinkTimer = CPU_THINK_MIN + random() * (CPU_THINK_MAX - CPU_THINK_MIN);
   }
@@ -420,50 +411,8 @@ export function createViudaEngine({
     return commit(applyAction(state, seatIds[seat], action));
   }
 
-  // Mejor cambio de una carta con la viuda abierta: devuelve la mejora de valor.
-  function bestSingleSwap(hand: readonly Card[]) {
-    const base = handScore(hand);
-    let best = { gain: 0, own: 0, wid: 0 };
-    for (let i = 0; i < HAND_SIZE; i++) {
-      for (let j = 0; j < HAND_SIZE; j++) {
-        const trial = hand.map((c, k) => (k === i ? state.widow[j] : c));
-        const gain = handScore(trial) - base;
-        if (gain > best.gain) best = { gain, own: i, wid: j };
-      }
-    }
-    return best;
-  }
-
   function cpuAct() {
-    const seat = state.current;
-    const hand = state.seats[seat].hand;
-    const value = handScore(hand);
-    const others = aliveCount();
-    // Con menos rivales vivos se llama con menos; un poco de ruido para no ser predecible.
-    // Cada vuelta sin llamadas baja el umbral, así que tarde o temprano alguien llama.
-    const threshold =
-      2.1 -
-      (seatCount - others) * 0.25 -
-      (state.lap - 1) * 0.2 +
-      (random() - 0.5) * 0.4;
-
-    if (state.caller === null && value >= threshold) {
-      act(seat, { type: "call" });
-      return;
-    }
-    if (!state.widowOpen) {
-      // Viuda boca abajo: no se conoce; con mano débil se arriesga a tomarla entera.
-      if (value < 1.1 && random() < 0.75) act(seat, { type: "swap5" });
-      else act(seat, { type: "pass" });
-      return;
-    }
-    // Viuda abierta: se pueden cambiar las 5 o una carta, solo si mejora la mano.
-    const swap = bestSingleSwap(hand);
-    const gainAll = handScore(state.widow) - value;
-    if (gainAll > 0.3 && gainAll > swap.gain) act(seat, { type: "swap5" });
-    else if (swap.gain > 0.15) {
-      act(seat, { type: "swap1", handIndex: swap.own, widowIndex: swap.wid });
-    } else act(seat, { type: "pass" });
+    act(state.current, chooseCpuAction(state, random));
   }
 
   // Le toca al jugador local según las reglas, aunque aún esté animándose la jugada anterior.

@@ -3407,6 +3407,75 @@ a {
 .vd-slot.empty .who {
   color: rgba(255, 255, 255, 0.4);
 }
+.vd-slot .tag.cpu {
+  color: var(--green);
+  border-color: rgba(0, 255, 136, 0.5);
+}
+
+/* Sala de espera: el anfitrión ocupa los puestos libres con CPU. */
+.vd-fill {
+  flex: none;
+  padding: 8px 12px;
+}
+.vd-fill:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.vd-slot.open {
+  padding: 0;
+  transition:
+    border-color 120ms,
+    background 120ms;
+}
+.vd-add {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  width: 100%;
+  min-width: 0;
+  padding: 0.6em 0.8em;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vd-slot.open:hover,
+.vd-slot.open:focus-within {
+  border-color: var(--cyan);
+  background: rgba(0, 245, 255, 0.07);
+}
+.vd-slot.open:hover .who,
+.vd-slot.open:focus-within .who {
+  color: var(--cyan);
+}
+.vd-add:focus-visible,
+.vd-slot-x:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.vd-slot-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.9em;
+  height: 1.9em;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--mono);
+  font-size: 0.9em;
+  cursor: pointer;
+  transition:
+    color 120ms,
+    border-color 120ms;
+}
+.vd-slot-x:hover {
+  color: var(--magenta);
+  border-color: var(--magenta);
+}
 
 /* En pantallas estrechas el lobby y la sala de espera (DOM, no canvas) usan todo el alto del
    escenario en vez del 4:3 del monitor, para verse completos sin scroll interno. */
@@ -3441,6 +3510,12 @@ a {
   }
   .vd-slot .tag {
     margin-left: 1.5em;
+  }
+  .vd-slot.open {
+    padding: 0;
+  }
+  .vd-add {
+    padding: 0.35em 0.6em;
   }
   .vd-tile {
     font-size: 1.25em;

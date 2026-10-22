@@ -6,7 +6,16 @@ import {
   heartbeat,
   setStatus,
 } from "@/lib/supabase/rooms";
-import { LIVES, MAX_PLAYERS, MIN_PLAYERS } from "../constants";
+import {
+  CPU_ONLINE_PAD_MS,
+  CPU_THINK_MAX,
+  CPU_THINK_MIN,
+  LIVES,
+  MAX_PLAYERS,
+  MIN_HUMANS,
+  MIN_PLAYERS,
+} from "../constants";
+import { chooseCpuAction } from "../cpu";
 import {
   advance,
   applyAction,
@@ -50,6 +59,8 @@ const ADVANCE_TICK_MS = 250;
 // al sincronizarse, presence puede emitir un leave seguido de un join sin que nadie se vaya.
 const LEAVE_GRACE_MS = 1500;
 const FALLBACK_NAME = "JUGADOR";
+// Las CPU se identifican por este prefijo; ningún humano puede unirse con un id así.
+const CPU_ID_PREFIX = "cpu-";
 // Cuántos jugadores guardan la copia del estado para tomar la sala si el anfitrión cae.
 const BACKUP_COUNT = 2;
 // Tras un relevo, margen para que presence se sincronice antes de dar a cada uno por conectado.
@@ -75,6 +86,9 @@ export interface HostSession {
   continueGame(): void; // CONTINUAR en el sorteo y el duelo
   pause(): void; // PAUSAR: ninguna acción de juego se acepta y los desconectados pueden volver
   resume(): void; // REANUDAR: los que siguen desconectados quedan eliminados
+  addCpu(): boolean; // ocupa un puesto libre con una CPU; false si no hay hueco o la partida ya empezó
+  fillCpus(): number; // ocupa con CPU todos los puestos libres; devuelve cuántas añadió
+  removeCpu(playerId: string): void; // quita una CPU de la sala de espera
   eliminatePlayer(playerId: string): void; // ELIMINAR a un jugador desconectado
   rematch(): void; // REVANCHA: vuelve a la sala de espera con los jugadores presentes
   close(): Promise<void>; // SALIR: cierra la sala para todos
@@ -84,6 +98,7 @@ export interface HostSession {
 interface Player {
   playerId: string;
   name: string;
+  cpu?: boolean; // ausente = humano
 }
 
 interface HandLink {
@@ -118,6 +133,8 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   let restoring = restore !== undefined; // hasta sincronizar presence no se publica
   // Marca de tiempo (no acumulación por frame): la pestaña en segundo plano frena los timers.
   let advanceDeadline: number | null = null;
+  // Cuándo actúa la CPU a la que le toca; null si no le toca a ninguna (o en pausa).
+  let cpuDeadline: number | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let advanceTimer: ReturnType<typeof setInterval> | null = null;
   let disposed = false;
@@ -143,6 +160,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       .filter(
         (p) =>
           p.playerId !== playerId &&
+          !p.cpu &&
           !removed.has(p.playerId) &&
           (!game || connected.has(p.playerId)),
       )
@@ -185,6 +203,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
           handCount: 0,
           lastAction: null,
           hand: null,
+          ...(p.cpu ? { cpu: true } : {}),
         })),
         turnPlayerId: null,
         callerId: null,
@@ -212,6 +231,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         lives: seat.lives,
         alive: seat.alive,
         connected: seat.id === playerId || connected.has(seat.id),
+        ...(isCpu(seat.id) ? { cpu: true } : {}),
         handCount: seat.alive && g.phase !== "draw" ? seat.hand.length : 0,
         lastAction: seat.caption || null,
         // Las manos solo se ven en el duelo; en el sorteo, la carta sacada es pública.
@@ -312,6 +332,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   function sendHands() {
     if (disposed || !game) return;
     for (const seat of game.seats) {
+      if (isCpu(seat.id)) continue; // el anfitrión ya tiene su mano
       const hand = seat.alive ? seat.hand : [];
       const key = JSON.stringify(hand);
       const taken = pendingTaken.get(seat.id) ?? null;
@@ -339,14 +360,49 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   // Los fallos del latido no son críticos: el siguiente lo reintenta.
   function syncRoom() {
     if (disposed) return;
-    heartbeat(code, players.length).catch(() => {});
+    // La sala figura con sus humanos: las CPU ceden el puesto a quien entre.
+    heartbeat(code, humanCount()).catch(() => {});
+  }
+
+  const humanCount = () => players.filter((p) => !p.cpu).length;
+  const isCpu = (id: string) => players.some((p) => p.playerId === id && p.cpu);
+
+  // Menor número de CPU libre: al quitar una, su número queda disponible.
+  function nextCpu(): Player {
+    const taken = new Set(players.map((p) => p.playerId));
+    let n = 1;
+    while (taken.has(`${CPU_ID_PREFIX}${n}`)) n++;
+    return { playerId: `${CPU_ID_PREFIX}${n}`, name: `CPU ${n}`, cpu: true };
+  }
+
+  function addCpu(): boolean {
+    if (disposed || game || players.length >= MAX_PLAYERS) return false;
+    players = [...players, nextCpu()];
+    publish();
+    return true;
+  }
+
+  function fillCpus(): number {
+    if (disposed || game) return 0;
+    const free = MAX_PLAYERS - players.length;
+    if (free <= 0) return 0;
+    for (let i = 0; i < free; i++) players = [...players, nextCpu()];
+    publish();
+    return free;
+  }
+
+  function removeCpu(id: string) {
+    if (disposed || game) return;
+    if (!players.some((p) => p.playerId === id && p.cpu)) return;
+    players = players.filter((p) => p.playerId !== id);
+    publish();
   }
 
   // --- Sala de espera ---
 
   // `reply`: el jugador lo pidió con un mensaje y espera la mesa aunque ya esté dentro.
   function addPlayer(id: string, rawName: string, reply: boolean) {
-    if (disposed || id === playerId) return;
+    if (disposed || id === playerId || id.startsWith(CPU_ID_PREFIX)) return;
     if (players.some((p) => p.playerId === id)) {
       if (reply) publish();
       return;
@@ -355,14 +411,21 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       reject(id, "started");
       return;
     }
+    const joining: Player = {
+      playerId: id,
+      name: cleanAlias(rawName) || FALLBACK_NAME,
+    };
     if (players.length >= MAX_PLAYERS) {
-      reject(id, "full");
-      return;
+      // Con la sala llena, el humano toma el puesto de la última CPU añadida.
+      const lastCpu = players.findLast((p) => p.cpu);
+      if (!lastCpu) {
+        reject(id, "full");
+        return;
+      }
+      players = players.map((p) => (p === lastCpu ? joining : p));
+    } else {
+      players = [...players, joining];
     }
-    players = [
-      ...players,
-      { playerId: id, name: cleanAlias(rawName) || FALLBACK_NAME },
-    ];
     publish();
     syncRoom();
   }
@@ -390,9 +453,34 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     advanceDeadline = waiting ? Date.now() + AUTO_ADVANCE_MS : null;
   }
 
+  // Si le toca a una CPU, programa su jugada: tiempo de pensar más un margen para que los
+  // clientes terminen de animar la anterior. Marca de tiempo, no acumulación por frame.
+  function armCpu() {
+    cpuDeadline = null;
+    if (paused || !game || game.phase !== "turn") return;
+    if (!isCpu(game.seats[game.current].id)) return;
+    const thinkMs =
+      (CPU_THINK_MIN + Math.random() * (CPU_THINK_MAX - CPU_THINK_MIN)) * 1000;
+    cpuDeadline = Date.now() + thinkMs + CPU_ONLINE_PAD_MS;
+  }
+
+  function runCpu() {
+    cpuDeadline = null;
+    if (disposed || superseded || paused || !game || game.phase !== "turn") {
+      return;
+    }
+    const id = game.seats[game.current].id;
+    if (!isCpu(id)) return;
+    // Una acción rechazada dejaría la mesa parada: se pasa como último recurso.
+    if (!handleAction(id, chooseCpuAction(game, Math.random))) {
+      handleAction(id, { type: "pass" });
+    }
+  }
+
   function commit(next: RulesState) {
     game = next;
     armAdvance();
+    armCpu();
     publish();
     sendHands();
   }
@@ -403,21 +491,26 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     if (!result.error) commit(result.state);
   }
 
-  function handleAction(id: string, action: OnlineAction) {
+  // Devuelve true si la acción se aplicó.
+  function handleAction(id: string, action: OnlineAction): boolean {
     // En pausa no se acepta ninguna acción; un jugador que el anfitrión ve desconectado tampoco puede jugar.
-    if (disposed || !game || paused) return;
-    if (id !== playerId && !connected.has(id)) return;
+    if (disposed || !game || paused) return false;
+    if (id !== playerId && !connected.has(id)) return false;
     const before = game;
     const result = applyAction(before, id, action);
     // Acción inválida (fuera de turno, viuda cerrada, eliminado…): el estado no cambia.
-    if (result.error) return;
-    const index = result.state.seats.findIndex((seat) => seat.id === id);
-    if (action.type === "swap5") {
-      pendingTaken.set(id, result.state.seats[index].hand);
-    } else if (action.type === "swap1") {
-      pendingTaken.set(id, [before.widow[action.widowIndex]]);
+    if (result.error) return false;
+    // Las CPU no reciben mano por la red, así que no hay nada que anunciar.
+    if (!isCpu(id)) {
+      const index = result.state.seats.findIndex((seat) => seat.id === id);
+      if (action.type === "swap5") {
+        pendingTaken.set(id, result.state.seats[index].hand);
+      } else if (action.type === "swap1") {
+        pendingTaken.set(id, [before.widow[action.widowIndex]]);
+      }
     }
     commit(result.state);
+    return true;
   }
 
   // --- Desconexión, reenganche y pausa ---
@@ -487,6 +580,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         ? null
         : Math.max(0, advanceDeadline - Date.now());
     advanceDeadline = null;
+    cpuDeadline = null;
     publish();
   }
 
@@ -507,6 +601,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     pausedRemainingMs = null;
     game = next;
     armAdvance();
+    armCpu();
     // Si la fase no cambió, la cuenta atrás sigue donde se quedó.
     if (
       remaining !== null &&
@@ -524,14 +619,16 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   // al crear la partida siguiente; la sala vuelve a figurar como abierta.
   function rematch() {
     if (disposed || !game || game.phase !== "final") return;
+    // Las CPU se quedan en la sala de espera; los humanos, solo si siguen conectados.
     players = players.filter(
-      (p) => p.playerId === playerId || connected.has(p.playerId),
+      (p) => p.cpu || p.playerId === playerId || connected.has(p.playerId),
     );
     game = null;
     paused = false;
     pausedRemainingMs = null;
     pausedPhase = null;
     advanceDeadline = null;
+    cpuDeadline = null;
     if (advanceTimer) clearInterval(advanceTimer);
     advanceTimer = null;
     connected.clear();
@@ -549,7 +646,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   }
 
   function eliminatePlayer(id: string) {
-    if (disposed || !game || id === playerId) return;
+    if (disposed || !game || id === playerId || isCpu(id)) return;
     const seat = game.seats.find((s) => s.id === id);
     // Solo se elimina a quien está desconectado.
     if (!seat?.alive || connected.has(id)) return;
@@ -561,6 +658,8 @@ export function createHostSession(options: HostSessionOptions): HostSession {
 
   channel.on("broadcast", { event: EVENT_CLIENT }, ({ payload }) => {
     if (!isClientMessage(payload)) return;
+    // Las CPU solo las mueve el anfitrión: nada que llegue por la red actúa en su nombre.
+    if (payload.playerId.startsWith(CPU_ID_PREFIX)) return;
     if (payload.kind === "join") {
       addPlayer(payload.playerId, payload.name, true);
     } else if (payload.kind === "leave") {
@@ -646,6 +745,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   function startAdvanceTimer() {
     if (advanceTimer) return;
     advanceTimer = setInterval(() => {
+      if (!paused && cpuDeadline !== null && Date.now() >= cpuDeadline) {
+        runCpu();
+      }
       if (
         !paused &&
         advanceDeadline !== null &&
@@ -664,7 +766,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     const present = channel.presenceState();
     if (game) {
       for (const seat of game.seats) {
-        if (seat.id !== playerId && seat.id in present && !removed.has(seat.id))
+        if (seat.id === playerId) continue;
+        // Las CPU no tienen presence: las dirige quien tenga la sala.
+        if (isCpu(seat.id) || (seat.id in present && !removed.has(seat.id)))
           connected.add(seat.id);
       }
       if (game.phase !== "final") {
@@ -679,7 +783,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       armAdvance();
     } else {
       players = players.filter(
-        (p) => p.playerId === playerId || p.playerId in present,
+        (p) => p.cpu || p.playerId === playerId || p.playerId in present,
       );
       if (!heartbeatTimer) heartbeatTimer = setInterval(syncRoom, HEARTBEAT_MS);
     }
@@ -715,7 +819,11 @@ export function createHostSession(options: HostSessionOptions): HostSession {
   return {
     async start() {
       if (disposed || game) return false;
-      if (players.length < MIN_PLAYERS || players.length > MAX_PLAYERS)
+      if (
+        humanCount() < MIN_HUMANS ||
+        players.length < MIN_PLAYERS ||
+        players.length > MAX_PLAYERS
+      )
         return false;
       try {
         await setStatus(code, "playing");
@@ -726,6 +834,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
         players.map((p) => p.playerId),
         Math.random,
       );
+      // Las CPU figuran siempre conectadas: no se desconectan ni se eliminan al reanudar.
       for (const p of players) {
         if (p.playerId !== playerId) connected.add(p.playerId);
       }
@@ -733,7 +842,7 @@ export function createHostSession(options: HostSessionOptions): HostSession {
       heartbeatTimer = null;
       // Se suscriben ya los canales de mano para que estén listos al repartir.
       for (const p of players)
-        if (p.playerId !== playerId) handLink(p.playerId);
+        if (p.playerId !== playerId && !p.cpu) handLink(p.playerId);
       startAdvanceTimer();
       armAdvance();
       publish();
@@ -751,6 +860,9 @@ export function createHostSession(options: HostSessionOptions): HostSession {
     },
     pause,
     resume,
+    addCpu,
+    fillCpus,
+    removeCpu,
     eliminatePlayer,
     rematch,
     async close() {

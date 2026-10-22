@@ -46,6 +46,9 @@ export function OnlineRoom({
     pause,
     resume,
     eliminatePlayer,
+    addCpu,
+    fillCpus,
+    removeCpu,
     rematch,
     leave,
   } = useRoomSession(room);
@@ -128,6 +131,9 @@ export function OnlineRoom({
         hostAwayUntil={hostAwayUntil}
         starting={starting}
         onStart={() => void handleStart()}
+        onAddCpu={addCpu}
+        onFillCpus={fillCpus}
+        onRemoveCpu={removeCpu}
         onLeave={exit}
       />
     );

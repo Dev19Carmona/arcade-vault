@@ -25,6 +25,7 @@ export interface PublicSeat {
   handCount: number;
   lastAction: string | null;
   hand: Card[] | null; // solo se rellena en el duelo
+  cpu?: boolean; // true = computadora; ausente = humano
 }
 
 // Lo que acaba de ocurrir, para que cada cliente lo anime. Es el `GameEvent` de las reglas
@@ -98,7 +99,7 @@ export interface PublicTable {
 export interface HostBackup {
   seq: number;
   term: number;
-  players: { playerId: string; name: string }[];
+  players: { playerId: string; name: string; cpu?: boolean }[];
   game: RulesState | null;
   removed: string[];
   advanceRemainingMs: number | null; // lo que faltaba para que avanzara solo el sorteo o el duelo
@@ -258,6 +259,13 @@ export function isHostBackup(value: unknown): value is HostBackup {
     typeof b.seq === "number" &&
     typeof b.term === "number" &&
     Array.isArray(b.players) &&
+    b.players.every(
+      (p) =>
+        !!p &&
+        typeof p.playerId === "string" &&
+        typeof p.name === "string" &&
+        (p.cpu === undefined || typeof p.cpu === "boolean"),
+    ) &&
     Array.isArray(b.removed) &&
     (b.game === null ||
       (typeof b.game === "object" && Array.isArray(b.game?.seats)))
