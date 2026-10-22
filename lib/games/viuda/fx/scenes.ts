@@ -244,13 +244,13 @@ export function widowFlipScene(
 }
 
 // El mazo del reparto: centro de la mesa, boca abajo y algo más pequeño que una carta.
-const DECK: Pose = {
+const deck = (): Pose => ({
   x: W / 2,
   y: WIDOW_Y + WIDOW_CARD_H / 2,
   rot: 0,
   scale: 0.65,
   flip: 0,
-};
+});
 
 // Una carta que sale del mazo hacia un hueco. `toUp`: se ve de cara al llegar (mano propia
 // y sorteo); `card` null si no se conoce. `order` es el turno de reparto.
@@ -283,7 +283,7 @@ export function dealScene(moves: readonly DealMove[]): Scene {
         const hide = [m.to.key];
         tl.addFlight({
           card: m.card,
-          from: DECK,
+          from: deck(),
           to: target,
           start,
           dur: flight,

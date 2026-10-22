@@ -251,6 +251,16 @@ export function createTableFx(): TableFx {
             mine ? "LLAMASTE" : "LLAMÓ",
           ),
         );
+        // Si el turno llega a quien abrió la ronda con la viuda cerrada, se voltea.
+        if (!q.before.widowOpen && t.widowOpen) {
+          const widow = widowCardRects();
+          tl.enqueue(
+            widowFlipScene(
+              widow.map((rect, k) => ({ key: `widow:${k}`, rect })),
+              t.widow,
+            ),
+          );
+        }
         break;
       }
       case "swap1": {

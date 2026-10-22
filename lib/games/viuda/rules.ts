@@ -207,6 +207,21 @@ function closeLap(draft: RulesState): void {
   for (const seat of draft.seats) seat.caption = "";
 }
 
+// Pasa el turno de `from` a `to` (siguiente vivo). Si en ese salto el turno llega al asiento
+// de quien abrió la ronda (o lo salta por estar eliminado) y la viuda sigue cerrada, se abre:
+// vale también tras una llamada, porque ya se dio una vuelta completa desde quien abrió.
+function moveTurn(draft: RulesState, from: number, to: number): void {
+  const count = draft.seats.length;
+  for (let i = (from + 1) % count; ; i = (i + 1) % count) {
+    if (i === draft.starter) {
+      draft.widowOpen = true;
+      break;
+    }
+    if (i === to) break;
+  }
+  draft.current = to;
+}
+
 function endTurn(draft: RulesState): void {
   if (draft.caller !== null) {
     // Última vuelta tras la llamada: al regresar a quien llamó, se muestran las manos.
@@ -219,7 +234,7 @@ function endTurn(draft: RulesState): void {
     draft.actionsInLap++;
     if (draft.actionsInLap >= aliveSeats(draft).length) closeLap(draft);
   }
-  draft.current = nextAlive(draft, draft.current);
+  moveTurn(draft, draft.current, nextAlive(draft, draft.current));
 }
 
 // --- API pública ---
@@ -308,7 +323,7 @@ export function applyAction(
       seat.caption = "LLAMO";
       draft.caller = index;
       draft.finalTurnsLeft = aliveSeats(draft).length - 1;
-      draft.current = nextAlive(draft, index);
+      moveTurn(draft, index, nextAlive(draft, index));
       record(draft, { kind: "call", seat: index });
       break;
     case "swap5":
@@ -401,7 +416,7 @@ export function eliminate(state: RulesState, playerId: string): RulesResult {
     draft.starter = pickStarter(draft);
     draft.current = draft.starter;
   } else {
-    if (wasCurrent) draft.current = nextAlive(draft, index);
+    if (wasCurrent) moveTurn(draft, index, nextAlive(draft, index));
     if (draft.caller !== null) {
       if (draft.finalTurnsLeft <= 0) startShowdown(draft);
     } else if (draft.actionsInLap >= aliveSeats(draft).length) {

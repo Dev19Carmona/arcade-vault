@@ -5,6 +5,7 @@ import { H, W } from "@/lib/games/viuda/constants";
 import { createViudaEngine } from "@/lib/games/viuda/engine";
 import type { ViudaEngine } from "@/lib/games/viuda/types";
 import type { GameCanvasProps } from "@/lib/games/types";
+import { useViudaLayout } from "./use-viuda-layout";
 
 const GAME_KEYS = new Set([
   "KeyP",
@@ -40,6 +41,7 @@ export function ViudaCanvas({
   onChange,
   onGameOver,
 }: GameCanvasProps) {
+  const size = useViudaLayout();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ViudaEngine | null>(null);
   const pausedRef = useRef(paused);
@@ -182,8 +184,8 @@ export function ViudaCanvas({
     <canvas
       ref={canvasRef}
       className="game-canvas game-canvas--drag"
-      width={W}
-      height={H}
+      width={size.width}
+      height={size.height}
       aria-label="Viuda"
     />
   );

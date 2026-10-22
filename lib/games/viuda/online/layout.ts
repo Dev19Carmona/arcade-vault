@@ -1,4 +1,5 @@
 import {
+  LAYOUT_MODE,
   MAX_PLAYERS,
   MIN_PLAYERS,
   SEAT_GAP,
@@ -21,11 +22,11 @@ const SIDES: Record<number, { left: number; top: number; right: number }> = {
 };
 
 const SIDE_X = 24;
-const TOP_Y = 28;
-const SIDE_MID_Y = 215;
+const TOP_Y = 14;
+const SIDE_MID_Y = 196;
 // Con dos paneles por columna lateral se acortan para caber entre la fila superior y la mano.
 const SIDE_PAIR_H = 104;
-const SIDE_PAIR_Y = [156, 272];
+const SIDE_PAIR_Y = [152, 262];
 
 function sideColumn(count: number, x: number): Rect[] {
   if (count === 0) return [];
@@ -44,9 +45,32 @@ function topRow(count: number): Rect[] {
   }));
 }
 
+// Lienzo vertical: los rivales van en una cuadrícula arriba, en orden de lectura
+// (izquierda a derecha, de arriba abajo) y la última fila centrada.
+function portraitGrid(rivals: number): Rect[] {
+  const cols = rivals <= 3 ? rivals : rivals === 4 ? 2 : rivals <= 6 ? 3 : 4;
+  const rows = Math.ceil(rivals / cols);
+  const w = cols === 1 ? 200 : cols === 2 ? 150 : cols === 3 ? SEAT_W : 94;
+  const h = rows === 1 ? 170 : 116;
+  // Arriba queda una franja libre para los botones PAUSAR y SALIR de la mesa en línea.
+  const y0 = rows === 1 ? 70 : 32;
+  return Array.from({ length: rivals }, (_, i) => {
+    const row = Math.floor(i / cols);
+    const inRow = row === rows - 1 ? rivals - row * cols : cols;
+    const total = inRow * w + (inRow - 1) * SEAT_GAP;
+    return {
+      x: (W - total) / 2 + (i - row * cols) * (w + SEAT_GAP),
+      y: y0 + row * (h + SEAT_GAP),
+      w,
+      h,
+    };
+  });
+}
+
 // Paneles de los oponentes, en sentido horario desde el jugador local (abajo):
 // columna izquierda de abajo arriba, fila superior de izquierda a derecha y
 // columna derecha de arriba abajo. El índice i corresponde al asiento relativo i + 1.
+// En el lienzo vertical es una cuadrícula que se lee en el mismo orden de turno.
 export function opponentRects(playerCount: number): Rect[] {
   if (
     !Number.isInteger(playerCount) ||
@@ -57,6 +81,7 @@ export function opponentRects(playerCount: number): Rect[] {
       `playerCount debe estar entre ${MIN_PLAYERS} y ${MAX_PLAYERS}`,
     );
   }
+  if (LAYOUT_MODE === "portrait") return portraitGrid(playerCount - 1);
   const sides = SIDES[playerCount - 1];
   return [
     ...sideColumn(sides.left, SIDE_X).reverse(),

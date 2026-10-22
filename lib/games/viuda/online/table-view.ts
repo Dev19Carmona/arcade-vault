@@ -3,6 +3,7 @@ import {
   CARD_GAP,
   CARD_H,
   CARD_W,
+  H,
   HAND_SIZE,
   COLOR_BLACK_SUIT,
   COLOR_CYAN,
@@ -12,10 +13,7 @@ import {
   COLOR_MAGENTA,
   COLOR_YELLOW,
   FONT,
-  HAND_Y,
   W,
-  WIDOW_CARD_H,
-  WIDOW_Y,
 } from "../constants";
 import {
   buttonRowRects,
@@ -27,6 +25,7 @@ import {
   drawTable,
   drawText,
   pointInRect,
+  SEAT_LIVES_Y,
   type CardStyle,
 } from "../entities";
 import {
@@ -41,10 +40,12 @@ import type { Card, Rect } from "../types";
 import { cardLabel, compareDrawCards } from "../utils";
 import {
   badgeAnchor,
+  localAnchors,
   onlineSeatCardRects,
   ownCardRects,
   rivalPanel,
   seatPanel,
+  tableLabels,
   widowCardRects,
 } from "./geometry";
 import type { PrivateHand, PublicSeat, PublicTable } from "./protocol";
@@ -95,11 +96,12 @@ export interface OnlineButton {
 }
 
 // El banner ocupa el hueco entre los paneles laterales para no taparlos.
-const BANNER_X = 184;
-const BANNER_W = W - 2 * BANNER_X;
-const BANNER_Y = 360;
-const LEAVE_RECT: Rect = { x: W - 100, y: 4, w: 92, h: 22 };
-const PAUSE_RECT: Rect = { x: 8, y: 4, w: 92, h: 22 };
+function bannerBox() {
+  const { bannerX, bannerY } = tableLabels();
+  return { x: bannerX, y: bannerY, w: W - 2 * bannerX };
+}
+const leaveRect = (): Rect => ({ x: W - 100, y: 4, w: 92, h: 22 });
+const pauseRect = (): Rect => ({ x: 8, y: 4, w: 92, h: 22 });
 
 // --- Consultas sobre la mesa ---
 
@@ -247,7 +249,7 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
       label: table.paused ? "REANUDAR" : "PAUSAR",
       color: table.paused ? COLOR_GREEN : COLOR_YELLOW,
       disabled: false,
-      rect: PAUSE_RECT,
+      rect: pauseRect(),
     });
   }
   if (view.isHost && inProgress) {
@@ -261,7 +263,7 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
         label: "ELIMINAR",
         color: COLOR_MAGENTA,
         disabled: false,
-        rect: { x: r.x + r.w / 2 - 38, y: r.y + 44, w: 76, h: 20 },
+        rect: { x: r.x + r.w / 2 - 38, y: r.y + r.h / 2 - 2, w: 76, h: 20 },
       });
     }
   }
@@ -274,7 +276,7 @@ export function onlineButtons(view: OnlineView): OnlineButton[] {
       label: "SALIR",
       color: COLOR_DIM,
       disabled: false,
-      rect: LEAVE_RECT,
+      rect: leaveRect(),
     },
   ];
 }
@@ -348,12 +350,12 @@ function drawOnlineSeat(
     state.active || state.loser ? 3 : 1,
   );
 
-  drawText(ctx, fitText(ctx, seat.name, r.w - 16, 13, true), cx, r.y + 13, {
+  drawText(ctx, fitText(ctx, seat.name, r.w - 16, 13, true), cx, r.y + 14, {
     size: 13,
     bold: true,
     color: state.active ? COLOR_YELLOW : COLOR_INK,
   });
-  drawLives(ctx, state.lives, cx, r.y + 30, 13);
+  drawLives(ctx, state.lives, cx, r.y + SEAT_LIVES_Y, 14);
 
   const faceUp = seat.hand !== null && state.showFaces;
   const count = faceUp
@@ -381,7 +383,7 @@ function drawOnlineSeat(
         ? (seat.lastAction ?? "")
         : "";
   if (caption) {
-    drawText(ctx, fitText(ctx, caption, r.w - 12, 11), cx, r.y + r.h - 11, {
+    drawText(ctx, fitText(ctx, caption, r.w - 12, 11), cx, r.y + r.h - 12, {
       size: 11,
       color: !seat.alive
         ? COLOR_DIM
@@ -416,7 +418,7 @@ function drawVeil(
 ) {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(0, 0, W, 600);
+  ctx.fillRect(0, 0, W, H);
   ctx.restore();
   drawBannerBox(
     ctx,
@@ -431,16 +433,17 @@ function drawBannerBox(
   color: string,
 ) {
   const h = 18 + lines.length * 22;
+  const box = bannerBox();
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(BANNER_X, BANNER_Y - h / 2, BANNER_W, h);
+  ctx.fillRect(box.x, box.y - h / 2, box.w, h);
   lines.forEach((line, i) => {
-    const size = i === 0 ? 18 : 13;
+    const size = i === 0 ? (box.w < 500 ? 15 : 18) : 13;
     drawText(
       ctx,
-      fitText(ctx, line, BANNER_W - 20, size, i === 0),
+      fitText(ctx, line, box.w - 20, size, i === 0),
       W / 2,
-      BANNER_Y - h / 2 + 19 + i * 22,
+      box.y - h / 2 + 19 + i * 22,
       { size, bold: i === 0, color: i === 0 ? color : COLOR_INK },
     );
   });
@@ -544,7 +547,7 @@ function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
   const winners = rows.filter((r) => r.position === 1);
   const iWon = winners.some((r) => r.seat.playerId === playerId);
 
-  drawText(ctx, "FIN DE LA PARTIDA", W / 2, 52, {
+  drawText(ctx, "FIN DE LA PARTIDA", W / 2, H * 0.1, {
     size: 24,
     bold: true,
     color: iWon ? COLOR_GREEN : COLOR_YELLOW,
@@ -557,13 +560,19 @@ function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
         : iWon
           ? "¡Has ganado la Viuda!"
           : `Gana ${winners[0].seat.name}`;
-  drawText(ctx, fitText(ctx, headline, W - 80, 16), W / 2, 84, {
+  drawText(ctx, fitText(ctx, headline, W - 40, 16), W / 2, H * 0.1 + 32, {
     size: 16,
     color: COLOR_INK,
   });
 
   // Lista de posiciones.
-  const box: Rect = { x: 220, y: 112, w: 360, h: 20 + rows.length * ROW_H };
+  const boxW = Math.min(360, W - 40);
+  const box: Rect = {
+    x: (W - boxW) / 2,
+    y: H * 0.1 + 60,
+    w: boxW,
+    h: 20 + rows.length * ROW_H,
+  };
   panel(ctx, box, "rgba(0,0,0,0.4)", "rgba(255,255,255,0.18)", 1);
   rows.forEach(({ position, seat }, i) => {
     const y = box.y + 10 + i * ROW_H + ROW_H / 2;
@@ -583,7 +592,7 @@ function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
       align: "left",
       color: position === 1 ? COLOR_YELLOW : COLOR_DIM,
     });
-    drawText(ctx, fitText(ctx, seat.name, 210, 14, mine), box.x + 64, y, {
+    drawText(ctx, fitText(ctx, seat.name, box.w - 150, 14, mine), box.x + 64, y, {
       size: 14,
       bold: mine,
       align: "left",
@@ -600,16 +609,26 @@ function drawFinalScreen(ctx: CanvasRenderingContext2D, view: OnlineView) {
   });
   drawText(
     ctx,
-    "Orden de eliminación: quienes cayeron en el mismo duelo empatan.",
+    fitText(
+      ctx,
+      "Orden de eliminación: quienes cayeron en el mismo duelo empatan.",
+      W - 24,
+      11,
+    ),
     W / 2,
     box.y + box.h + 22,
     { size: 11, color: COLOR_DIM },
   );
   drawText(
     ctx,
-    view.isHost
-      ? "REVANCHA vuelve a la sala de espera con los jugadores presentes."
-      : "Esperando a que el anfitrión proponga la revancha.",
+    fitText(
+      ctx,
+      view.isHost
+        ? "REVANCHA vuelve a la sala de espera con los jugadores presentes."
+        : "Esperando a que el anfitrión proponga la revancha.",
+      W - 24,
+      13,
+    ),
     W / 2,
     BUTTON_Y - 24,
     { size: 13, color: COLOR_CYAN },
@@ -673,7 +692,8 @@ export function drawOnlineTable(
   });
 
   // La viuda.
-  drawText(ctx, "LA VIUDA", W / 2, WIDOW_Y - 30, {
+  const labels = tableLabels();
+  drawText(ctx, "LA VIUDA", W / 2, labels.widowLabelY, {
     size: 13,
     bold: true,
     color: COLOR_DIM,
@@ -745,26 +765,33 @@ export function drawOnlineTable(
       );
     }
   }
-  if (phase === "turn" || phase === "showdown") {
+  const mine = localAnchors();
+  if (mine.label && (phase === "turn" || phase === "showdown")) {
     const label = !me?.alive
       ? "ESPECTADOR"
       : me.lastAction && phase === "turn"
         ? `TÚ · ${me.lastAction}`
         : "TUS CARTAS";
-    drawText(ctx, label, W / 2, HAND_Y - 26, { size: 12, color: COLOR_DIM });
+    drawText(ctx, label, mine.label.x, mine.label.y, {
+      size: 12,
+      color: COLOR_DIM,
+    });
   }
   drawText(
     ctx,
-    fitText(ctx, me?.name ?? "TÚ", 108, 14, true),
-    70,
-    HAND_Y + 30,
+    fitText(ctx, me?.name ?? "TÚ", mine.name.x < 60 ? 76 : 108, 14, true),
+    mine.name.x,
+    mine.name.y,
     { size: 14, bold: true, color: myTurn ? COLOR_YELLOW : undefined },
   );
-  drawLives(ctx, me ? livesShown(localIndex) : 0, 70, HAND_Y + 54);
-  drawText(ctx, `RONDA ${Math.max(table.round, 1)}`, W - 70, HAND_Y + 30, {
-    size: 12,
-    color: COLOR_DIM,
-  });
+  drawLives(ctx, me ? livesShown(localIndex) : 0, mine.hearts.x, mine.hearts.y);
+  drawText(
+    ctx,
+    `RONDA ${Math.max(table.round, 1)}`,
+    mine.round.x,
+    mine.round.y,
+    { size: 12, color: COLOR_DIM },
+  );
 
   // Animaciones: cartas en vuelo, corazón roto, aro del turno, última vuelta y carteles.
   const veiled = table.paused || (me && !me.connected);
@@ -776,7 +803,9 @@ export function drawOnlineTable(
     );
     if (turn >= 0)
       drawTurnPulse(ctx, seatPanel(count, localIndex, turn), tl.now);
-    if (table.callerId !== null) drawLastLap(ctx, W / 2, 176, tl.now);
+    if (table.callerId !== null) {
+      drawLastLap(ctx, labels.lastLap.x, labels.lastLap.y, tl.now);
+    }
   }
   drawBadges(ctx, tl, (i) => badgeAnchor(count, localIndex, i));
 
@@ -784,9 +813,9 @@ export function drawOnlineTable(
   if (phase === "turn" && !veiled) {
     drawText(
       ctx,
-      fitText(ctx, statusLine(table, playerId), BANNER_W, 13),
+      fitText(ctx, statusLine(table, playerId), labels.statusW, 13),
       W / 2,
-      WIDOW_Y + WIDOW_CARD_H + 28,
+      labels.statusY,
       { size: 13, color: myTurn ? COLOR_YELLOW : COLOR_CYAN },
     );
   }

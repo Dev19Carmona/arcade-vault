@@ -33,7 +33,7 @@ Cada jugador, en su turno, elige una acción:
 **La viuda empieza cerrada.** Se abre de dos maneras:
 
 1. Alguien usa **CAMBIAR 5**.
-2. Todos los jugadores vivos juegan una vez sin que nadie llame (todos pasan): la viuda se abre **cuando el turno vuelve a quien abrió la ronda**.
+2. **El turno vuelve a quien abrió la ronda** con la viuda aún cerrada: se voltea y queda visible para todos. Pasa cuando todos los vivos han jugado una vez, hayan pasado todos o haya llamado alguien en esa vuelta (p. ej. abre A, B pasa, C llama, D pasa → A ve la viuda abierta en su turno final). Si llama quien abrió la ronda, no se abre.
 
 Con la viuda cerrada la única forma de interactuar con ella es CAMBIAR 5. Una vez abierta, las **vueltas son ilimitadas** hasta que alguien llame: cada vuelta completa sin llamada sigue con el mismo orden.
 
@@ -42,7 +42,7 @@ Con la viuda cerrada la única forma de interactuar con ella es CAMBIAR 5. Una v
 - **Solo una persona puede llamar por ronda.** Mientras haya una llamada, nadie más ve el botón LLAMO y el servidor/anfitrión rechaza cualquier otra.
 - Quien llama **no puede cambiar ni pasar** después.
 - La llamada inicia la **última vuelta**: cada uno de los demás jugadores vivos tiene **un único turno** para cambiar (5 o, si la viuda ya está abierta, 1 o 5) o pasar. No pueden llamar.
-- Efecto especial: si la viuda estaba cerrada cuando se llamó y uno de los siguientes cambia las 5, la viuda queda abierta y los demás pueden usarla con CAMBIAR 1 o 5 en su turno final.
+- Si la viuda estaba cerrada cuando se llamó, se abre cuando el turno llega a quien abrió la ronda (sección 4); si antes alguien cambia las 5, queda abierta y los siguientes pueden usarla con CAMBIAR 1 o 5 en su turno final.
 - Al volver el turno a quien llamó, termina la ronda y se pasa al duelo.
 
 ## 6. Duelo

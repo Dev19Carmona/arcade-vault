@@ -1332,6 +1332,27 @@ a {
 .game-canvas--drag {
   touch-action: none;
 }
+/* La mesa de Viuda se lee de cerca: sin líneas de barrido ni viñeta encima de las cartas. */
+.crt-screen:has(.game-canvas--drag)::before,
+.crt-screen:has(.game-canvas--drag)::after {
+  display: none;
+}
+/* Móvil en vertical: la mesa usa un lienzo 5:9 (400×720 lógicos) en vez del 4:3 del monitor.
+   La misma consulta decide el modo en JS (PORTRAIT_QUERY en lib/games/viuda/constants.ts). */
+@media (max-width: 720px) and (orientation: portrait) {
+  .crt:has(.game-canvas--drag) {
+    --sw: max(
+      0px,
+      min(
+        calc(100cqw - 2 * var(--pad) - var(--ring)),
+        calc((100cqh - 2 * var(--pad) - var(--bar) - var(--ring)) * 5 / 9)
+      )
+    );
+  }
+  .crt-screen:has(.game-canvas--drag) {
+    aspect-ratio: 5 / 9;
+  }
+}
 
 /* game over modal */
 .modal-bd {
