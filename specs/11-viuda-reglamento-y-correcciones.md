@@ -1,6 +1,6 @@
 # SPEC 11 — Viuda: alinear las reglas con el reglamento oficial y documentar el juego
 
-> **Estado:** Draft
+> **Estado:** Approved
 > **Depende de:** SPEC 07 (Viuda VS CPU, `rules.ts`), SPEC 08 (Viuda en línea), SPEC 10 (animaciones y marcas, `fx/` y `online/table-fx.ts`)
 > **Fecha:** 2026-10-22
 > **Objetivo:** Que Viuda (VS CPU y en línea) siga al pie de la letra el _Reglamento Oficial y Manual Técnico V5_ (rotación de quien empieza, desempate por pintas sin empates, un solo «llamo» por ronda) y que exista un `REGLAS.md` que describa exactamente cómo funciona el juego implementado.
