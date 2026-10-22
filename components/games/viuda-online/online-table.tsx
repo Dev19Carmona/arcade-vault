@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { H, HAND_SIZE, MAX_DT, W } from "@/lib/games/viuda/constants";
+import { useSoundEnabled } from "../use-sound-enabled";
 import { useViudaLayout } from "../use-viuda-layout";
 import { pointInRect } from "@/lib/games/viuda/entities";
 import {
@@ -16,6 +17,7 @@ import type {
   PublicTable,
 } from "@/lib/games/viuda/online/protocol";
 import { createTableFx } from "@/lib/games/viuda/online/table-fx";
+import { createSfx, type Sfx } from "@/lib/games/viuda/sfx/player";
 import {
   drawOnlineTable,
   isMyTurn,
@@ -89,6 +91,26 @@ export function OnlineTable(props: Props) {
   // Vidas antes del duelo, para saber quién pierde una.
   const livesBeforeDuel = useRef(new Map<string, number>());
   const losers = useRef<ReadonlySet<string>>(new Set());
+
+  // Sonido: el reproductor se crea en un efecto y se libera en su limpieza (StrictMode).
+  const [soundOn] = useSoundEnabled();
+  const sfxRef = useRef<Sfx | null>(null);
+  const soundOnRef = useRef(soundOn);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+    sfxRef.current?.setEnabled(soundOn);
+  });
+  useEffect(() => {
+    const sfx = createSfx();
+    sfx.setEnabled(soundOnRef.current);
+    sfxRef.current = sfx;
+    fx.setSfx(sfx);
+    return () => {
+      fx.setSfx(null);
+      sfxRef.current = null;
+      sfx.dispose();
+    };
+  }, [fx]);
 
   // Las refs siempre apuntan a lo último sin recrear el bucle.
   useEffect(() => {
@@ -281,6 +303,7 @@ export function OnlineTable(props: Props) {
       if (release?.kind === "drop") {
         if (release.from !== release.to) {
           fx.setOrder(moveCard(fx.order(), release.from, release.to));
+          sfxRef.current?.play("sort");
         }
         return;
       }

@@ -1,3 +1,5 @@
+import type { Sfx } from "./sfx/player";
+
 export interface ViudaSnapshot {
   score: number;
   lives: number; // vidas del jugador humano
@@ -10,6 +12,7 @@ export interface ViudaEngineOptions {
   localSeat?: number; // asiento del jugador local; por defecto HUMAN_SEAT (0)
   onChange: (snapshot: ViudaSnapshot) => void; // solo cuando cambia algún campo
   onGameOver: (finalScore: number) => void; // una única vez por partida
+  sfx?: Sfx; // efectos de sonido; sin él la partida es muda
 }
 
 export interface ViudaEngine {

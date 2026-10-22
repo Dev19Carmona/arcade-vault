@@ -3,8 +3,10 @@
 import { useEffect, useRef } from "react";
 import { H, W } from "@/lib/games/viuda/constants";
 import { createViudaEngine } from "@/lib/games/viuda/engine";
+import { createSfx, type Sfx } from "@/lib/games/viuda/sfx/player";
 import type { ViudaEngine } from "@/lib/games/viuda/types";
 import type { GameCanvasProps } from "@/lib/games/types";
+import { useSoundEnabled } from "./use-sound-enabled";
 import { useViudaLayout } from "./use-viuda-layout";
 
 const GAME_KEYS = new Set([
@@ -48,12 +50,17 @@ export function ViudaCanvas({
   const onChangeRef = useRef(onChange);
   const onGameOverRef = useRef(onGameOver);
   const lastRunId = useRef(runId);
+  const [soundOn] = useSoundEnabled();
+  const soundOnRef = useRef(soundOn);
+  const sfxRef = useRef<Sfx | null>(null);
 
   // Las refs siempre apuntan a los últimos valores sin recrear el motor.
   useEffect(() => {
     pausedRef.current = paused;
     onChangeRef.current = onChange;
     onGameOverRef.current = onGameOver;
+    soundOnRef.current = soundOn;
+    sfxRef.current?.setEnabled(soundOn);
   });
 
   // Motor, teclado, ratón y bucle: se crean al montar y se limpian por completo al desmontar.
@@ -62,7 +69,12 @@ export function ViudaCanvas({
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
+    // Se crea en el efecto y se libera en su limpieza (StrictMode monta dos veces).
+    const sfx = createSfx();
+    sfx.setEnabled(soundOnRef.current);
+    sfxRef.current = sfx;
     const engine = createViudaEngine({
+      sfx,
       onChange: ({ score, lives, round, rivals }) =>
         onChangeRef.current({
           score,
@@ -170,6 +182,8 @@ export function ViudaCanvas({
       window.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("visibilitychange", onVisibility);
       engineRef.current = null;
+      sfxRef.current = null;
+      sfx.dispose();
     };
   }, []);
 
