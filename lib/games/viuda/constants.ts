@@ -7,6 +7,8 @@ export const SEATS = 4;
 export const HUMAN_SEAT = 0;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 9;
+// En línea los puestos pueden ser CPU, pero para iniciar hacen falta al menos 2 humanos.
+export const MIN_HUMANS = 2;
 
 // Códigos de sala: sin I, O, 0 ni 1 para no confundirlos al dictarlos.
 export const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -17,6 +19,8 @@ export const HAND_SIZE = 5;
 // Pensar de las CPU, en segundos.
 export const CPU_THINK_MIN = 0.8;
 export const CPU_THINK_MAX = 1.4;
+// En línea, espera extra de la CPU (ms) para que los clientes terminen de animar la jugada anterior.
+export const CPU_ONLINE_PAD_MS = 1000;
 
 // Puntuación: solo cuenta la victoria.
 export const WIN_POINTS_PER_RIVAL = 1000;

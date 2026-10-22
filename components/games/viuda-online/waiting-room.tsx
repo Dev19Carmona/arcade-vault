@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MAX_PLAYERS, MIN_PLAYERS } from "@/lib/games/viuda/constants";
+import {
+  MAX_PLAYERS,
+  MIN_HUMANS,
+  MIN_PLAYERS,
+} from "@/lib/games/viuda/constants";
 import type { PublicTable } from "@/lib/games/viuda/online/protocol";
 import { HostAwayNotice } from "./host-away-notice";
 
@@ -15,6 +19,9 @@ export function WaitingRoom({
   hostAwayUntil,
   starting,
   onStart,
+  onAddCpu,
+  onFillCpus,
+  onRemoveCpu,
   onLeave,
 }: {
   code: string;
@@ -24,6 +31,9 @@ export function WaitingRoom({
   hostAwayUntil: number | null; // el anfitrión no responde: hora (ms) del relevo
   starting: boolean;
   onStart: () => void;
+  onAddCpu: () => void; // solo el anfitrión
+  onFillCpus: () => void;
+  onRemoveCpu: (playerId: string) => void;
   onLeave: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -48,8 +58,13 @@ export function WaitingRoom({
   }
 
   const count = table.seats.length;
+  const humans = table.seats.filter((seat) => !seat.cpu).length;
   const canStart =
-    isHost && count >= MIN_PLAYERS && count <= MAX_PLAYERS && !starting;
+    isHost &&
+    humans >= MIN_HUMANS &&
+    count >= MIN_PLAYERS &&
+    count <= MAX_PLAYERS &&
+    !starting;
 
   return (
     <div className="vd-screen">
@@ -105,8 +120,8 @@ export function WaitingRoom({
                   {starting ? "INICIANDO…" : "INICIAR"}
                 </button>
                 <p id="vd-start-hint" className="vd-hint">
-                  {count < MIN_PLAYERS
-                    ? `Faltan jugadores: se necesitan al menos ${MIN_PLAYERS}.`
+                  {humans < MIN_HUMANS
+                    ? `Faltan jugadores: se necesitan al menos ${MIN_HUMANS} personas. Las CPU solo rellenan puestos.`
                     : "Cuando empiece la partida nadie más podrá entrar. Si pierdes la conexión, la sala te espera 2 minutos antes de pasar a otro anfitrión."}
                 </p>
               </>
@@ -122,11 +137,36 @@ export function WaitingRoom({
               <h3>
                 Jugadores {count} de {MAX_PLAYERS}
               </h3>
+              {isHost && (
+                <button
+                  type="button"
+                  className="btn vd-fill"
+                  onClick={onFillCpus}
+                  disabled={count >= MAX_PLAYERS}
+                >
+                  RELLENAR PUESTOS
+                </button>
+              )}
             </div>
             <ol className="vd-slots">
               {Array.from({ length: MAX_PLAYERS }, (_, i) => {
                 const seat = table.seats[i];
                 if (!seat) {
+                  if (isHost) {
+                    return (
+                      <li key={i} className="vd-slot empty open">
+                        <button
+                          type="button"
+                          className="vd-add"
+                          onClick={onAddCpu}
+                          aria-label={`Añadir una CPU en el puesto ${i + 1}`}
+                        >
+                          <span className="n">{i + 1}</span>
+                          <span className="who">+ CPU</span>
+                        </button>
+                      </li>
+                    );
+                  }
                   return (
                     <li key={i} className="vd-slot empty">
                       <span className="n">{i + 1}</span>
@@ -138,11 +178,22 @@ export function WaitingRoom({
                   <li key={seat.playerId} className="vd-slot">
                     <span className="n">{i + 1}</span>
                     <span className="who">{seat.name}</span>
+                    {seat.cpu && <span className="tag cpu">CPU</span>}
                     {seat.playerId === table.hostId && (
                       <span className="tag">anfitrión</span>
                     )}
                     {seat.playerId === playerId && (
                       <span className="tag me">tú</span>
+                    )}
+                    {seat.cpu && isHost && (
+                      <button
+                        type="button"
+                        className="vd-slot-x"
+                        onClick={() => onRemoveCpu(seat.playerId)}
+                        aria-label={`Quitar a ${seat.name}`}
+                      >
+                        ✕
+                      </button>
                     )}
                   </li>
                 );

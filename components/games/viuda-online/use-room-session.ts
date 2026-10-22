@@ -139,6 +139,12 @@ export function useRoomSession(room: EnteredRoom) {
     (id: string) => host((s) => s.eliminatePlayer(id)),
     [host],
   );
+  const addCpu = useCallback(() => host((s) => void s.addCpu()), [host]);
+  const fillCpus = useCallback(() => host((s) => void s.fillCpus()), [host]);
+  const removeCpu = useCallback(
+    (id: string) => host((s) => s.removeCpu(id)),
+    [host],
+  );
 
   // SALIR: el anfitrión cierra la sala; un jugador avisa y se va.
   const leave = useCallback(() => {
@@ -163,6 +169,9 @@ export function useRoomSession(room: EnteredRoom) {
     pause,
     resume,
     eliminatePlayer,
+    addCpu,
+    fillCpus,
+    removeCpu,
     rematch,
     leave,
   };

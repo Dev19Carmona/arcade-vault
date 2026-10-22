@@ -1,6 +1,6 @@
 # SPEC 14 — Viuda en línea: computadoras en la sala de espera
 
-> **Estado:** Borrador
+> **Estado:** Aprobado
 > **Depende de:** SPEC 07 (Viuda VS CPU, IA de las CPU), SPEC 08 (Viuda en línea, sala de espera y anfitrión), SPEC 11 (reglas vigentes), SPEC 13 (chat y líneas de sistema)
 > **Fecha:** 2026-10-22
 > **Objetivo:** Permitir que el anfitrión de una sala en línea de Viuda ocupe puestos libres con CPU (de uno en uno con clic en el puesto, o los que falten de golpe con un botón) para jugar mezclando humanos y computadoras, hasta los 9 puestos.
