@@ -11,6 +11,7 @@ import {
   type HostSession,
 } from "@/lib/games/viuda/online/host";
 import type {
+  HostBackup,
   JoinRejection,
   OnlineAction,
   PrivateHand,
@@ -20,7 +21,7 @@ import type { EnteredRoom } from "@/components/games/viuda-online/lobby";
 
 export type RoomFailure =
   | { kind: "rejected"; reason: Exclude<JoinRejection, "running"> }
-  | { kind: "closed" } // el anfitrión se desconectó
+  | { kind: "closed" } // el anfitrión se fue y nadie pudo tomar la sala
   | { kind: "error"; message: string };
 
 type Session = HostSession | ClientSession;
@@ -31,10 +32,15 @@ export function useRoomSession(room: EnteredRoom) {
   const [hand, setHand] = useState<PrivateHand | null>(null);
   const [failure, setFailure] = useState<RoomFailure | null>(null);
   const [notice, setNotice] = useState<RoomNotice | null>(null);
+  // Hora (ms) en que, si el anfitrión sigue sin volver, otro jugador tomará la sala.
+  const [hostAwayUntil, setHostAwayUntil] = useState<number | null>(null);
+  // Cambia en pleno juego: un jugador pasa a anfitrión si el anterior no vuelve.
+  const [isHost, setIsHost] = useState(room.isHost);
   const sessionRef = useRef<Session | null>(null);
 
   useEffect(() => {
     let session: Session | null = null;
+    let cancelled = false;
     // StrictMode monta, desmonta y vuelve a montar de golpe. Crear la sesión en el
     // siguiente tick hace que el primer montaje no llegue a abrir canal: el cliente
     // de Realtime reutiliza el canal de un mismo topic, así que abrir dos seguidos
@@ -48,20 +54,48 @@ export function useRoomSession(room: EnteredRoom) {
         onHand: setHand,
         onError: (message: string) => setFailure({ kind: "error", message }),
       };
-      session = room.isHost
-        ? createHostSession(base)
-        : createClientSession({
-            ...base,
-            hostId: room.hostId ?? null,
-            rejoin: room.rejoin ?? false,
-            onRejected: (reason) => setFailure({ kind: "rejected", reason }),
-            onNotice: setNotice,
-            onHostLeft: () => setFailure({ kind: "closed" }),
-          });
-      sessionRef.current = session;
+      const openHost = (restore?: HostBackup) => {
+        session = createHostSession({
+          ...base,
+          restore,
+          onSuperseded: (hostId) => void openClient(hostId, true),
+        });
+        sessionRef.current = session;
+        setIsHost(true);
+        setHostAwayUntil(null);
+        setNotice(null);
+      };
+      // El relevo reutiliza el canal de la sala: el anterior se suelta del todo antes de abrir otro.
+      const openClient = async (hostId: string | null, rejoin = false) => {
+        const previous = session;
+        session = null;
+        sessionRef.current = null;
+        await previous?.dispose();
+        if (cancelled) return;
+        session = createClientSession({
+          ...base,
+          hostId,
+          rejoin,
+          onRejected: (reason) => setFailure({ kind: "rejected", reason }),
+          onNotice: setNotice,
+          onHostAway: setHostAwayUntil,
+          onPromote: (backup) => {
+            void (async () => {
+              await session?.dispose();
+              if (!cancelled) openHost(backup);
+            })();
+          },
+          onHostLeft: () => setFailure({ kind: "closed" }),
+        });
+        sessionRef.current = session;
+        setIsHost(false);
+      };
+      if (room.isHost) openHost();
+      else void openClient(room.hostId ?? null, room.rejoin ?? false);
     }, 0);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       sessionRef.current = null;
       void session?.dispose();
@@ -106,6 +140,8 @@ export function useRoomSession(room: EnteredRoom) {
     hand,
     failure,
     notice,
+    hostAwayUntil,
+    isHost,
     start,
     act,
     continueGame,

@@ -55,6 +55,7 @@ interface Props {
   playerId: string;
   isHost: boolean;
   notice: "running" | "reconnecting" | null;
+  hostAwayUntil: number | null;
   onAction: (action: OnlineAction) => void;
   onContinue: () => void;
   onPause: () => void;
@@ -155,6 +156,10 @@ export function OnlineTable(props: Props) {
         pointer: pointer.current,
         secondsLeft: left,
         notice: p.notice,
+        hostAwayLeft:
+          p.hostAwayUntil === null
+            ? null
+            : Math.max(0, Math.ceil((p.hostAwayUntil - Date.now()) / 1000)),
         fx,
         locked: fx.isLocked(),
         order: fx.order(),

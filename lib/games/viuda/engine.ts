@@ -43,6 +43,7 @@ import {
   drawEffects,
   drawFlights,
   drawLastLap,
+  drawLastLapBorder,
   drawTurnPulse,
   type BadgeAnchor,
 } from "./fx/draw";
@@ -849,6 +850,7 @@ export function createViudaEngine({
     // Turno y jugadas: aro en el asiento activo, carteles, marca del llamador y última vuelta.
     if (phase === "turn") drawTurnPulse(ctx, seatPanel(state.current), fx.now);
     if (phase === "turn" && state.caller !== null) {
+      drawLastLapBorder(ctx, fx.now);
       drawLastLap(ctx, W / 2, 176, fx.now);
     }
     drawBadges(ctx, fx, badgeAnchor);
