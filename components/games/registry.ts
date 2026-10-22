@@ -10,3 +10,6 @@ export const GAME_CANVASES: Record<string, ComponentType<GameCanvasProps>> = {
   tetris: TetrisCanvas,
   viuda: ViudaGame,
 };
+
+// Juegos con efectos de sonido: la plataforma les muestra el botón de silenciar.
+export const SOUND_GAMES: ReadonlySet<string> = new Set(["viuda"]);

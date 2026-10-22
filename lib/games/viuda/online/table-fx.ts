@@ -1,8 +1,10 @@
 import { HAND_SIZE } from "../constants";
 import {
   callScene,
+  dealLandingMs,
   dealScene,
   passScene,
+  showdownHeartMs,
   showdownScene,
   swap1Moves,
   swap1Scene,
@@ -21,6 +23,8 @@ import {
   rulesToVisual,
   type HandOrder,
 } from "../hand-order";
+import type { Sfx } from "../sfx/player";
+import { withSound, withSounds } from "../sfx/scene-sound";
 import type { Card } from "../types";
 import {
   heartAnchor,
@@ -65,6 +69,9 @@ export interface TableFx {
   // con un cambio, la carta nueva ocupa el hueco de la que salió.
   order(): HandOrder;
   setOrder(order: HandOrder): void;
+  // Efectos de sonido: suenan al arrancar cada escena. Se asignan después de crear la
+  // mesa porque el reproductor nace en un efecto del componente.
+  setSfx(sfx: Sfx | null): void;
 }
 
 // Estado de la viuda antes de la transición de un evento.
@@ -97,6 +104,14 @@ export function createTableFx(): TableFx {
   let prevOrder: HandOrder = order;
   // Vidas de cada jugador antes del duelo, para saber a quién se le rompe un corazón.
   let livesBefore = new Map<string, number>();
+  let currentSfx: Sfx | null = null;
+  // Las escenas se envuelven con este proxy para que el sonido se resuelva al sonar y no
+  // al encolar: la mesa puede ingerir antes de que exista el reproductor.
+  const sfx: Sfx = {
+    play: (id, opts) => currentSfx?.play(id, opts),
+    setEnabled: () => {},
+    dispose: () => {},
+  };
 
   function fullReset() {
     tl.reset();
@@ -166,7 +181,17 @@ export function createTableFx(): TableFx {
       const key = i === localIndex ? "own:0" : `seat:${i}:0`;
       moves.push({ card, to: { key, rect }, toUp: true, order: moves.length });
     });
-    if (moves.length > 0) tl.enqueue(dealScene(moves));
+    // Cada carta del sorteo suena al llegar a su hueco.
+    if (moves.length > 0) {
+      tl.enqueue(
+        withSounds(dealScene(moves), sfx, (speed) =>
+          dealLandingMs(moves, speed).map((delayMs) => ({
+            id: "flip" as const,
+            delayMs,
+          })),
+        ),
+      );
+    }
   }
 
   function needsMyHand(q: Queued): boolean {
@@ -221,13 +246,19 @@ export function createTableFx(): TableFx {
             order: moves.length,
           });
         }
-        tl.enqueue(dealScene(moves));
+        tl.enqueue(withSound(dealScene(moves), sfx, "deal"));
         break;
       }
       case "pass": {
         const i = seatIndex(e.playerId);
         if (i < 0) break;
-        tl.enqueue(passScene(i, i === localIndex ? "PASO" : "PASA"));
+        tl.enqueue(
+          withSound(
+            passScene(i, i === localIndex ? "PASO" : "PASA"),
+            sfx,
+            "pass",
+          ),
+        );
         // Si con este paso se cerró la vuelta, la viuda se abre sola: se voltea en su sitio.
         if (!q.before.widowOpen && t.widowOpen) {
           const widow = widowCardRects();
@@ -245,10 +276,14 @@ export function createTableFx(): TableFx {
         if (i < 0) break;
         const mine = i === localIndex;
         tl.enqueue(
-          callScene(
-            i,
-            mine ? "¡LLAMO!" : "¡LLAMA!",
-            mine ? "LLAMASTE" : "LLAMÓ",
+          withSound(
+            callScene(
+              i,
+              mine ? "¡LLAMO!" : "¡LLAMA!",
+              mine ? "LLAMASTE" : "LLAMÓ",
+            ),
+            sfx,
+            "call",
           ),
         );
         // Si el turno llega a quien abrió la ronda con la viuda cerrada, se voltea.
@@ -276,14 +311,18 @@ export function createTableFx(): TableFx {
           ? (prevHand?.hand[e.handIndex] ?? null)
           : (t.widow[e.widowIndex] ?? null);
         tl.enqueue(
-          swap1Scene(
-            swap1Moves(
-              layoutOf(t, localIndex, i),
-              e.handIndex,
-              e.widowIndex,
-              handCard,
-              widowCard,
+          withSound(
+            swap1Scene(
+              swap1Moves(
+                layoutOf(t, localIndex, i),
+                e.handIndex,
+                e.widowIndex,
+                handCard,
+                widowCard,
+              ),
             ),
+            sfx,
+            "swap1",
           ),
         );
         break;
@@ -295,13 +334,17 @@ export function createTableFx(): TableFx {
         // Solo yo conozco las cartas que tomo de una viuda cerrada.
         const newHand = mine ? (hand?.hand ?? blanks) : q.before.widow;
         tl.enqueue(
-          swap5Scene(
-            swap5Moves(
-              layoutOf(t, localIndex, i),
-              newHand,
-              t.widow,
-              q.before.widowOpen,
+          withSound(
+            swap5Scene(
+              swap5Moves(
+                layoutOf(t, localIndex, i),
+                newHand,
+                t.widow,
+                q.before.widowOpen,
+              ),
             ),
+            sfx,
+            "swap5",
           ),
         );
         break;
@@ -330,7 +373,16 @@ export function createTableFx(): TableFx {
             ? [{ seat: i, ...heartAnchor(count, localIndex, i, seat.lives) }]
             : [],
         );
-        tl.enqueue(showdownScene(reveals, hearts));
+        // Suena al romperse el corazón: distinto si la vida la pierdo yo o la pierde otro.
+        const lost = hearts.some((h) => h.seat === localIndex);
+        tl.enqueue(
+          withSounds(showdownScene(reveals, hearts), sfx, (speed) => [
+            {
+              id: lost ? "roundLose" : "roundWin",
+              delayMs: showdownHeartMs(speed),
+            },
+          ]),
+        );
         break;
       }
     }
@@ -433,6 +485,9 @@ export function createTableFx(): TableFx {
     },
     setOrder(next) {
       order = next;
+    },
+    setSfx(next) {
+      currentSfx = next;
     },
   };
 }

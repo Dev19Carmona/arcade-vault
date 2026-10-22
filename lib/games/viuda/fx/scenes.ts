@@ -261,22 +261,45 @@ export interface DealMove {
   order: number;
 }
 
+// Duración nominal del reparto: con pocas cartas (el sorteo) dura menos que una ronda.
+function dealDur(moves: readonly DealMove[]): number {
+  return Math.min(
+    FX_DEAL_MS,
+    FX_DEAL_FLIGHT_MS + Math.max(moves.length - 1, 0) * FX_STAGGER_MS,
+  );
+}
+
+// Vuelo y desfase entre cartas del reparto, ya acelerados por `speed`.
+function dealTiming(moves: readonly DealMove[], speed: number) {
+  const k = 1 / speed;
+  const flight = FX_DEAL_FLIGHT_MS * k;
+  const last = Math.max(1, ...moves.map((m) => m.order));
+  return { flight, step: (dealDur(moves) * k - flight) / last };
+}
+
+// Ms desde el inicio de la escena hasta que cada carta llega a su hueco (misma orden que `moves`).
+export function dealLandingMs(
+  moves: readonly DealMove[],
+  speed: number,
+): number[] {
+  const { flight, step } = dealTiming(moves, speed);
+  return moves.map((m) => m.order * step + flight);
+}
+
+// Ms desde el inicio del duelo hasta que acaba el volteo y se rompe el corazón.
+export function showdownHeartMs(speed: number): number {
+  return FX_REVEAL_MS / speed;
+}
+
 // Reparto escalonado desde el mazo: cada carta vuela y se queda en su hueco hasta el final.
 // Con pocas cartas (el sorteo) dura menos que con una ronda completa.
 export function dealScene(moves: readonly DealMove[]): Scene {
-  const count = moves.length;
-  const dur = Math.min(
-    FX_DEAL_MS,
-    FX_DEAL_FLIGHT_MS + Math.max(count - 1, 0) * FX_STAGGER_MS,
-  );
-  const last = Math.max(1, ...moves.map((m) => m.order));
+  const dur = dealDur(moves);
   return {
     dur,
     run(tl, at, speed) {
-      const k = 1 / speed;
-      const flight = FX_DEAL_FLIGHT_MS * k;
-      const end = at + dur * k;
-      const step = (dur * k - flight) / last;
+      const { flight, step } = dealTiming(moves, speed);
+      const end = at + dur / speed;
       for (const m of moves) {
         const start = at + m.order * step;
         const target = slotPose(m.to.rect, m.toUp);

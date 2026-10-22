@@ -44,8 +44,10 @@ import {
 } from "./fx/draw";
 import {
   callScene,
+  dealLandingMs,
   dealScene,
   passScene,
+  showdownHeartMs,
   showdownScene,
   type DealMove,
   type HeartBreak,
@@ -79,6 +81,7 @@ import {
 } from "./online/geometry";
 import { opponentRects, relativeSeat } from "./online/layout";
 import type { OnlineAction } from "./online/protocol";
+import { withSound, withSounds } from "./sfx/scene-sound";
 import {
   advance,
   applyAction,
@@ -119,6 +122,7 @@ export function createViudaEngine({
   localSeat = HUMAN_SEAT,
   onChange,
   onGameOver,
+  sfx,
 }: ViudaEngineOptions): ViudaEngine {
   // Los rivales se numeran en orden de turno a partir del asiento local.
   const seatName = (i: number) =>
@@ -210,7 +214,15 @@ export function createViudaEngine({
       const key = i === localSeat ? "own:0" : `seat:${i}:0`;
       return [{ card: seat.drawCard, to: { key, rect }, toUp: true, order: i }];
     });
-    fx.enqueue(dealScene(moves));
+    // Cada carta del sorteo suena al llegar a su hueco.
+    fx.enqueue(
+      withSounds(dealScene(moves), sfx, (speed) =>
+        dealLandingMs(moves, speed).map((delayMs) => ({
+          id: "flip" as const,
+          delayMs,
+        })),
+      ),
+    );
   }
 
   // Convierte los eventos de una transición en animaciones. `prev` es el estado anterior.
@@ -241,7 +253,7 @@ export function createViudaEngine({
             order: seq++,
           });
         }
-        fx.enqueue(dealScene(moves));
+        fx.enqueue(withSound(dealScene(moves), sfx, "deal"));
       } else if (event.kind === "showdown") {
         // Las manos rivales se voltean; los corazones perdidos se rompen al terminar.
         const reveals: Reveal[] = [];
@@ -264,10 +276,21 @@ export function createViudaEngine({
         const hearts: HeartBreak[] = next.seats.flatMap((seat, s) =>
           seat.loser ? [{ seat: s, size: 14, ...heartPos(s, seat.lives) }] : [],
         );
-        fx.enqueue(showdownScene(reveals, hearts));
+        // Suena al romperse el corazón: distinto si la vida la pierdo yo o la pierde otro.
+        const lost = next.seats[localSeat].loser;
+        fx.enqueue(
+          withSounds(showdownScene(reveals, hearts), sfx, (speed) => [
+            {
+              id: lost ? "roundLose" : "roundWin",
+              delayMs: showdownHeartMs(speed),
+            },
+          ]),
+        );
       } else if (event.kind === "pass") {
         const mine = event.seat === localSeat;
-        fx.enqueue(passScene(event.seat, mine ? "PASO" : "PASA"));
+        fx.enqueue(
+          withSound(passScene(event.seat, mine ? "PASO" : "PASA"), sfx, "pass"),
+        );
         // Si con este paso se cerró la vuelta, la viuda se abre sola: se voltea en su sitio.
         if (!prev.widowOpen && next.widowOpen) {
           const widow = widowRects();
@@ -281,10 +304,14 @@ export function createViudaEngine({
       } else if (event.kind === "call") {
         const mine = event.seat === localSeat;
         fx.enqueue(
-          callScene(
-            event.seat,
-            mine ? "¡LLAMO!" : "¡LLAMA!",
-            mine ? "LLAMASTE" : "LLAMÓ",
+          withSound(
+            callScene(
+              event.seat,
+              mine ? "¡LLAMO!" : "¡LLAMA!",
+              mine ? "LLAMASTE" : "LLAMÓ",
+            ),
+            sfx,
+            "call",
           ),
         );
         // Si el turno llega a quien abrió la ronda con la viuda cerrada, se voltea.
@@ -305,7 +332,7 @@ export function createViudaEngine({
           next.seats[event.seat].hand[event.handIndex],
           next.widow[event.widowIndex],
         );
-        fx.enqueue(swap1Scene(moves));
+        fx.enqueue(withSound(swap1Scene(moves), sfx, "swap1"));
       } else if (event.kind === "swap5") {
         const moves = swap5Moves(
           swapLayout(event.seat),
@@ -313,7 +340,7 @@ export function createViudaEngine({
           next.widow,
           prev.widowOpen,
         );
-        fx.enqueue(swap5Scene(moves));
+        fx.enqueue(withSound(swap5Scene(moves), sfx, "swap5"));
       }
     }
   }
@@ -639,6 +666,7 @@ export function createViudaEngine({
     if (release?.kind === "drop") {
       if (release.from !== release.to) {
         order = moveCard(order, release.from, release.to);
+        sfx?.play("sort");
       }
       emit();
       return;

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { GAME_CANVASES } from "@/components/games/registry";
+import { GAME_CANVASES, SOUND_GAMES } from "@/components/games/registry";
+import { useSoundEnabled } from "@/components/games/use-sound-enabled";
 import { useSession } from "@/components/session-provider";
 import type { GameSnapshot } from "@/lib/games/types";
 import { ROUTES } from "@/lib/routes";
@@ -24,6 +25,7 @@ export function GamePlayer({
   gameTitle: string;
 }) {
   const { user } = useSession();
+  const [soundOn, setSoundOn] = useSoundEnabled();
   // Juegos con motor real en el registro; el resto sigue con la simulación.
   const Canvas = GAME_CANVASES[gameId];
   const [simScore, setSimScore] = useState(0);
@@ -152,6 +154,16 @@ export function GamePlayer({
                 FIN
               </button>
             </>
+          )}
+          {SOUND_GAMES.has(gameId) && (
+            <button
+              type="button"
+              className={soundOn ? "btn" : "btn ghost"}
+              aria-pressed={soundOn}
+              onClick={() => setSoundOn(!soundOn)}
+            >
+              {soundOn ? "SONIDO ON" : "SONIDO OFF"}
+            </button>
           )}
           <Link href={`/juego/${gameId}`} className="btn ghost">
             SALIR
